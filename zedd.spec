@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 """
-PyInstaller spec file for Zenodo Uploader GUI
-Usage: pyinstaller zenodo_uploader.spec
+PyInstaller spec file for ZEDD GUI
+Usage: pyinstaller zedd.spec
 """
 
 import os
@@ -11,8 +11,8 @@ from pathlib import Path
 block_cipher = None
 
 # Define paths
-app_name = 'ZenodoUploader'
-main_script = 'zenodo_uploader_gui.py'
+app_name = 'ZEDD'
+main_script = 'zedd_gui.py'
 project_root = Path('.')
 
 # Data files to include

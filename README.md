@@ -18,13 +18,6 @@ A Python application for uploading electron diffraction datasets to Zenodo with 
 - Python 3.8+
 - PyQt6 for GUI functionality
 
-### Installation
-
-```bash
-git clone https://github.com/yourusername/zenodo-uploader.git
-cd zenodo-uploader
-pip install -r requirements.txt
-```
 
 ### Usage
 
@@ -70,57 +63,8 @@ python -m src.cli -z YOUR_TOKEN -T "Dataset Title" -C "Last, First" -A "Institut
 }
 ```
 
-## 📦 Building Standalone Executable
-
-For Windows distribution:
-
-```bash
-# Install PyInstaller (if not already installed)
-pip install pyinstaller
-
-# Build executable using the build script
-build.bat
-
-# Or manually with PyInstaller
-pyinstaller zenodo_uploader.spec
-```
-
-For Linux/macOS:
-```bash
-# Make build script executable and run
-chmod +x build.sh
-./build.sh
-```
-
-The executable will be created in `dist/ZenodoUploader/` and can be distributed as a complete folder.
-
-## 🏗️ Project Structure
-
-```
-zenodo_uploader/
-├── src/
-│   ├── api/                 # Zenodo API integration
-│   ├── core/                # Core interfaces  
-│   ├── services/            # Business logic (metadata, upload, validation)
-│   ├── gui/                 # GUI components
-│   └── cli.py               # Command-line interface
-├── templates/               # Configuration templates
-├── zenodo_uploader_gui.py   # Main GUI launcher
-└── zenodo_uploader.spec     # PyInstaller build specification
-```
-
 ## 🔧 Configuration
 
 The application uses template files in the `templates/` directory:
 - `app_config.json` - Application settings
 - `comprehensive_template.json` - Complete metadata example
-
-Settings are automatically saved and restored between sessions.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit issues and pull requests.
-
-## 📄 License
-
-This project is licensed under the MIT License.
