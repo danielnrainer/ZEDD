@@ -1,0 +1,71 @@
+{
+  "_comment": "Zenodo Electron Diffraction Uploader - Application Configuration",
+  "_description": "This file contains default settings for application behavior, not Zenodo metadata",
+  "_usage": "Edit these values to customize default application behavior for your research group",
+  
+  "_comment_api_settings": "API connection settings",
+  "api_settings": {
+    "_comment_sandbox": "Set to true for testing uploads, false for production",
+    "use_sandbox": true,
+    "_comment_base_url": "Zenodo API base URLs (usually don't need to change)",
+    "production_url": "https://zenodo.org/api/deposit/depositions",
+    "sandbox_url": "https://sandbox.zenodo.org/api/deposit/depositions",
+    "_comment_token": "API token is entered in the application, not stored here",
+    "token": ""
+  },
+  
+  "_comment_application_settings": "Default application behavior",
+  "application_settings": {
+    "_comment_auto_validate": "Automatically validate metadata before upload",
+    "auto_validate": true,
+    "_comment_auto_publish": "Automatically publish after upload (be careful!)",
+    "auto_publish": false,
+    "_comment_create_zip": "Automatically create ZIP archives for directories",
+    "create_zip_for_folders": true,
+    "_comment_checksums": "Compute MD5 checksums for uploaded files",
+    "compute_checksums": false,
+    "_comment_remember_paths": "Remember last used file/folder paths",
+    "remember_last_paths": true
+  },
+  
+  "_comment_file_settings": "File handling preferences",
+  "file_settings": {
+    "_comment_max_size": "Maximum file size in GB (0 = no limit)",
+    "max_file_size_gb": 50,
+    "_comment_extensions": "Allowed file extensions for uploads",
+    "allowed_extensions": [
+      ".zip", ".tar.gz", ".7z",
+      ".h5", ".hdf5",
+      ".cif", ".mcif",
+      ".mrc", ".mrcs",
+      ".dm3", ".dm4",
+      ".tiff", ".tif", ".jpg", ".jpeg", ".png",
+      ".pdf", ".txt", ".json", ".xml", ".csv",
+      ".py", ".m", ".ipynb"
+    ],
+    "_comment_zip_name": "Default name for created ZIP archives",
+    "default_zip_name": "electron_diffraction_data.zip"
+  },
+  
+  "_comment_gui_settings": "GUI appearance and behavior",
+  "gui_settings": {
+    "_comment_window_size": "Default window dimensions [width, height]",
+    "default_window_size": [900, 700],
+    "_comment_remember_size": "Remember last window size and position",
+    "remember_window_geometry": true,
+    "_comment_theme": "GUI theme (system/light/dark)",
+    "theme": "system",
+    "_comment_encoding": "Text encoding for file operations",
+    "text_encoding": "utf-8"
+  },
+  
+  "_comment_validation_settings": "Metadata validation preferences",
+  "validation_settings": {
+    "_comment_strict_mode": "Strict validation (more checks, may reject valid data)",
+    "strict_validation": false,
+    "_comment_required_fields": "Fields that must be filled",
+    "required_fields": ["title", "description", "creators"],
+    "_comment_warn_missing": "Show warnings for recommended but not required fields",
+    "warn_missing_optional": true
+  }
+}
