@@ -16,3 +16,4 @@ dist/
 # VS Code settings
 .vscode/
 *.code-workspace
+templates/3DED_Southampton.json

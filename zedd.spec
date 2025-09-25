@@ -32,16 +32,24 @@ hiddenimports = [
     'pathlib',
     'dataclasses',
     'typing',
+    'urllib.parse',
+    # Application modules
     'src.gui.app',
     'src.gui.widgets',
+    'src.gui.upload_worker',
+    'src.gui.template_loader',
     'src.gui.measurement_params',
     'src.services.metadata',
     'src.services.upload',
     'src.services.validation',
+    'src.services.metadata_validation',
     'src.services.settings',
     'src.services.factory',
-    'src.api.zenodo',
+    'src.services.templates',
+    'src.services.file_packing',
+    'src.api.zenodo_api',
     'src.core.interfaces',
+    'src.cli',
 ]
 
 a = Analysis(
@@ -102,7 +110,7 @@ coll = COLLECT(
 
 # Optional: Create a one-file executable instead
 # Uncomment the following to create a single executable file:
-"""
+# """
 exe = EXE(
     pyz,
     a.scripts,
@@ -124,4 +132,4 @@ exe = EXE(
     entitlements_file=None,
     icon=None,  # Add icon='icon.ico' if you have an icon file
 )
-"""
+# """

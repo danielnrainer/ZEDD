@@ -36,7 +36,8 @@ class MeasurementParameterRow(QWidget):
             "Instrumental", 
             "Sample description",
             "Experimental",
-            "Data collection"
+            "Data collection",
+            "Software & Files"
         ])
         self.section_combo.setCurrentText(section)
         self.section_combo.setToolTip("Group parameters into sections for better organization")

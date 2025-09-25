@@ -12,11 +12,21 @@ import json
 
 
 @dataclass
-class TemplateAuthor:
-    """Author data for templates"""
+class TemplateCreator:
+    """Creator data for templates (creators only - no type field)"""
     name: str = ""
     affiliation: str = ""
     orcid: str = ""
+
+
+@dataclass
+class TemplateContributor:
+    """Contributor data for templates (future use - currently inactive)
+    Note: Contributors API requires additional Zenodo setup"""
+    name: str = ""
+    affiliation: str = ""
+    orcid: str = ""
+    type: str = ""
 
 
 @dataclass
@@ -25,6 +35,7 @@ class TemplateFunding:
     funder: str = ""
     award_number: str = ""
     award_title: str = ""
+    url: str = ""
 
 
 @dataclass
@@ -134,7 +145,8 @@ class MetadataTemplate:
     publication_date: str = ""
     
     # Complex objects
-    creators: List[TemplateAuthor] = field(default_factory=list)
+    creators: List[TemplateCreator] = field(default_factory=list)
+    contributors: List[TemplateContributor] = field(default_factory=list)
     grants: List[TemplateFunding] = field(default_factory=list)
     communities: List[TemplateCommunity] = field(default_factory=list)
     ed_parameters: TemplateEDParameters = field(default_factory=TemplateEDParameters)
@@ -147,7 +159,8 @@ class MetadataTemplate:
     def from_dict(cls, data: Dict[str, Any]) -> 'MetadataTemplate':
         """Create template from dictionary"""
         # Extract and convert nested objects
-        creators = [TemplateAuthor(**creator) for creator in data.get('creators', [])]
+        creators = [TemplateCreator(**creator) for creator in data.get('creators', [])]
+        contributors = [TemplateContributor(**contributor) for contributor in data.get('contributors', [])]
         
         grants = []
         for grant_data in data.get('grants', []):
@@ -157,7 +170,8 @@ class MetadataTemplate:
                     grants.append(TemplateFunding(
                         funder=grant_data.get('funder', ''),
                         award_number=grant_data['award'].get('number', ''),
-                        award_title=grant_data['award'].get('title', '')
+                        award_title=grant_data['award'].get('title', ''),
+                        url=grant_data.get('url', '')
                     ))
                 else:
                     grants.append(TemplateFunding(**grant_data))
@@ -206,6 +220,7 @@ class MetadataTemplate:
             notes=data.get('notes', ''),
             publication_date=data.get('publication_date', ''),
             creators=creators,
+            contributors=contributors,
             grants=grants,
             communities=communities,
             ed_parameters=ed_parameters
@@ -266,6 +281,6 @@ class TemplateService:
     def get_default_template(self) -> MetadataTemplate:
         """Get default template with sensible defaults"""
         template = MetadataTemplate()
-        template.creators = [TemplateAuthor()]  # One empty author
+        template.creators = [TemplateCreator()]  # One empty creator
         template.communities = [TemplateCommunity(identifier="microed")]  # Default community
         return template

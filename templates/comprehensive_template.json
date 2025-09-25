@@ -1,70 +1,38 @@
 {
-    "title": "3D Electron Diffraction Data: Na2-ADC Structure Determination",
-    "description": "Complete 3D electron diffraction dataset collected using continuous rotation electron diffraction (cRED) for structure determination of sodium acetylenedicarboxylate (Na2-ADC). This dataset includes raw diffraction frames, processed data, and structure solution files suitable for crystallographic analysis and method development.",
+    "title": "3D ED raw data for \"MANUSCRIPT NAME\"",
+    "description": "3D ED data for the crystal structure in the title publication (https://doi.org/). Data were collected using continuous rotation in selected area mode. The table below summarizes generic data collection parameters for the data collection.",
     "upload_type": "dataset",
     "access_right": "open",
     "license": "cc-by-4.0",
-    "publication_date": "2024-12-01",
+    "publication_date": "2025-09-25",
     "keywords": [
         "3D electron diffraction",
         "electron crystallography",
-        "microED",
-        "continuous rotation",
+        "3D ED",
         "cRED",
-        "structure determination",
-        "sodium acetylenedicarboxylate",
-        "Na2-ADC",
         "crystallography",
-        "electron diffraction tomography"
+        "continuous rotation electron diffraction"
     ],
-    "notes": "Dataset collected as part of electron diffraction method development. All data processed using standard crystallographic software. Structure deposited in Cambridge Structural Database (CSD). Raw data suitable for method comparison and software development.",
+    "notes": "",
     "creators": [
         {
-            "name": "Smith, John A.",
-            "affiliation": "University of Southampton, National Crystallography Service",
-            "orcid": "0000-0000-0000-0001"
-        },
-        {
-            "name": "Jones, Sarah B.",
-            "affiliation": "University of Southampton, School of Chemistry",
-            "orcid": "0000-0000-0000-0002"
-        },
-        {
-            "name": "Wilson, Michael C.",
-            "affiliation": "Diamond Light Source, Electron Bio-Imaging Centre",
-            "orcid": "0000-0000-0000-0003"
+            "name": "Rainer, Daniel N.",
+            "affiliation": "University of Southampton",
+            "orcid": "0000-0002-3272-3161"
         }
     ],
     "grants": [
-        {
-            "funder": "Engineering and Physical Sciences Research Council",
-            "award_number": "EP/T012345/1",
-            "award_title": "Advanced Electron Crystallography for Structure Determination"
-        },
-        {
-            "funder": "Royal Society",
-            "award_number": "RG123456",
-            "award_title": "University Research Fellowship"
-        },
-        {
-            "funder": "Wellcome Trust",
-            "award_number": "WT098765/Z/12/Z",
-            "award_title": "Structural Biology Methods Development"
-        }
     ],
     "communities": [
         {
             "identifier": "microed"
-        },
-        {
-            "identifier": "crystallography"
         }
     ],
     "ed_parameters": {
         "parameters": {
             "Collection site": "University of Southampton, NCS/NEDF",
-            "Sample label(s)": "2024NCS0534",
-            "Crystal structure deposit": "CSD 2415532",
+            "Sample label(s)": "",
+            "Crystal structure deposit": "CSD - to be deposited",
             "Data availability": "Open access via Zenodo",
             
             "Instrument": "Rigaku XtaLAB Synergy-ED, electron diffractometer",
@@ -78,30 +46,19 @@
             "Pixel size [µm]": "100",
             "Hardware binning": "1",
             
-            "Name": "Na2-ADC",
-            "Chemical composition": "C16 H8 Na2 O4",
-            "Molecular weight": "318.22 g/mol",
-            "Sample source": "Synthesis",
-            "Grid": "lacey carbon coated copper grid, 200 mesh (Agar Scientific)",
-            "Sample preparation": "Sample ground between glass slides, grid dabbed, cryo transfer @ 175 K",
+            "Name": "example sample",
+            "Chemical composition": "C1 O1 H1",
+            "Sample source": "synthesis",
+            "Grid": "lacey carbon coated copper grid, 200 mesh (Agar Scientific, UK)",
+            "Sample preparation": "sample ground between glass slides, grid dabbed, cryo transfer @ 175 K",
             "Sample holder": "GATAN Elsa cryo-transfer holder 698",
-            "Crystal size [µm³]": "0.5 × 0.5 × 0.1",
-            "Crystal morphology": "Needle-like crystals",
             
-            "Data type": "Electron diffraction data - 3D ED",
-            "Data collection method": "Continuous rotation - cRED",
+            "Data type": "electron diffraction data - 3D ED",
+            "Data collection method": "continuous rotation - cRED",
             "Collection temperature [K]": "175",
-            "Rotation range [°]": "-60 to +60",
-            "Rotation speed [°/s]": "0.5",
-            "Exposure time [s/frame]": "0.5",
-            "Total rotation [°]": "120",
-            "Number of frames": "240",
-            "Resolution [Å]": "0.8",
-            "Completeness [%]": "85.2",
-            "Multiplicity": "3.4",
-            "Crystal system": "Monoclinic",
-            "Space group": "P21/c",
-            "Unit cell parameters": "a=8.123 b=12.456 c=15.789 β=95.23°"
+
+            "Software for data collection": "CrysAlisPro 1.171.44.100a",
+            "Software for data processing": "CrysAlisPro 1.171.44.101a"
         }
     }
 }

@@ -6,9 +6,9 @@ Each service handles a specific concern and can be used independently.
 """
 
 # Core data structures and file handling
-from .metadata import Author, EDParameters, ZenodoMetadata, Funding
+from .metadata import Creator, Contributor, EDParameters, ZenodoMetadata, Funding
 from .file_packing import create_zip_from_folder, compute_checksums
-from .templates import MetadataTemplate, TemplateService, TemplateAuthor, TemplateFunding, TemplateCommunity, TemplateEDParameters
+from .templates import MetadataTemplate, TemplateService, TemplateCreator, TemplateContributor, TemplateFunding, TemplateCommunity, TemplateEDParameters
 
 # File and metadata validation
 from .validation import ZenodoFileValidator, BatchFileValidator

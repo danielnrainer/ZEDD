@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Command-line interface for Zenodo uploads using modular services
+Command-line interface for Zenodo uploader
+Supports uploading datasets using modular services
 """
 
 import argparse
@@ -11,12 +12,12 @@ from typing import List, Optional
 
 try:
     # When run as a package
-    from .services.metadata import Author, EDParameters, ZenodoMetadata
+    from .services.metadata import Creator, EDParameters, ZenodoMetadata
     from .services import get_service_factory, initialize_services
     from .services.file_packing import create_zip_from_folder, compute_checksums
 except ImportError:
     # When run as a script
-    from src.services.metadata import Author, EDParameters, ZenodoMetadata
+    from src.services.metadata import Creator, EDParameters, ZenodoMetadata
     from src.services import get_service_factory, initialize_services
     from src.services.file_packing import create_zip_from_folder, compute_checksums
 
@@ -48,12 +49,12 @@ def load_json_metadata(file_path: str) -> dict:
     with open(file_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-def process_creators(creators: Optional[List[str]], affiliations: Optional[List[str]]) -> List[Author]:
-    """Process creator names and affiliations into Author objects"""
+def process_creators(creators: Optional[List[str]], affiliations: Optional[List[str]]) -> List[Creator]:
+    """Process creator names and affiliations into Creator objects"""
     if not creators:
         raise ValueError("At least one creator is required")
     
-    authors = []
+    creators_list = []
     for i, name in enumerate(creators):
         affiliation = None
         if affiliations:
@@ -64,9 +65,9 @@ def process_creators(creators: Optional[List[str]], affiliations: Optional[List[
             elif len(affiliations) > i:
                 affiliation = affiliations[i]
         
-        authors.append(Author(name=name.strip(), affiliation=affiliation))
+        creators_list.append(Creator(name=name.strip(), affiliation=affiliation))
     
-    return authors
+    return creators_list
 
 def main():
     args = parse_args()
@@ -91,6 +92,8 @@ def main():
     # Process metadata
     if args.metadata:
         metadata_dict = load_json_metadata(args.metadata)
+        # Note: Funding information is disabled in ZenodoMetadata.to_dict()
+        # Users need to add funding manually on Zenodo
     else:
         if not args.title or not args.creator or not args.description:
             print("Error: Either metadata file (-m) or title (-T), creator (-C), and description (-D) are required", 
@@ -98,11 +101,11 @@ def main():
             sys.exit(1)
         
         # Create metadata object
-        authors = process_creators(args.creator, args.affiliation)
+        creators = process_creators(args.creator, args.affiliation)
         metadata_obj = ZenodoMetadata(
             title=args.title,
             description=args.description,
-            creators=authors,
+            creators=creators,
             keywords=args.keyword if args.keyword else []
         )
         metadata_dict = metadata_obj.to_dict()
@@ -192,7 +195,12 @@ def main():
             if 'links' in deposition:
                 print(f"Deposition URL: {deposition['links'].get('html', '')}")
         
-        print("\nAll uploads completed successfully!")
+        print("\n✅ All uploads completed successfully!")
+        print("\n⚠️  Manual Steps Required:")
+        print("Please visit your records on Zenodo to manually add:")
+        print("• Funding information (grants)")
+        print("• Creator roles/types for each author")
+        print("These features are not fully supported via the API yet.")
         
     except Exception as e:
         print(f"\nError during upload: {e}", file=sys.stderr)

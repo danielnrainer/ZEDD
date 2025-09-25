@@ -7,6 +7,8 @@ repository requirements and data quality standards.
 
 from typing import Dict, Any, List, Tuple, Optional
 import re
+import requests
+import time
 from datetime import datetime
 
 from ..core.interfaces import MetadataValidator, ValidationError
@@ -270,3 +272,94 @@ class ZenodoMetadataValidator(MetadataValidator):
             return "Fair"
         else:
             return "Poor"
+
+
+def validate_funder_api(funder_name: str, sandbox: bool = False) -> Optional[str]:
+    """
+    Validate funder against Zenodo API and return DOI prefix if found
+    
+    Args:
+        funder_name: Name of the funder to validate
+        sandbox: If True, use sandbox API
+        
+    Returns:
+        DOI prefix as string if found, None if not found or error
+    """
+    base_url = "https://sandbox.zenodo.org" if sandbox else "https://zenodo.org"
+    
+    try:
+        # Search for funders matching the name
+        response = requests.get(
+            f"{base_url}/api/funders",
+            params={
+                "q": funder_name,
+                "size": 10  # Limit results
+            },
+            timeout=10
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        hits = data.get("hits", {}).get("hits", [])
+        
+        # Look for exact or close match
+        for hit in hits:
+            name = hit.get("name", "")
+            aliases = hit.get("aliases", [])
+            
+            # Check for exact match (case insensitive)
+            if (name.lower() == funder_name.lower() or 
+                any(alias.lower() == funder_name.lower() for alias in aliases)):
+                
+                # Extract DOI identifier
+                identifiers = hit.get("identifiers", [])
+                for identifier in identifiers:
+                    if identifier.get("scheme") == "doi":
+                        return identifier.get("identifier")
+            
+            # Check if the search term is contained in the funder name or aliases
+            if (funder_name.lower() in name.lower() or 
+                any(funder_name.lower() in alias.lower() for alias in aliases)):
+                
+                # Extract DOI identifier
+                identifiers = hit.get("identifiers", [])
+                for identifier in identifiers:
+                    if identifier.get("scheme") == "doi":
+                        return identifier.get("identifier")
+        
+        return None  # Not found
+        
+    except Exception as e:
+        print(f"Error validating funder '{funder_name}': {e}")
+        return None
+
+
+def validate_community_api(community_id: str, sandbox: bool = False) -> bool:
+    """
+    Validate community against Zenodo API
+    
+    Args:
+        community_id: Community identifier to validate
+        sandbox: If True, use sandbox API (skip validation)
+        
+    Returns:
+        True if community exists or if in sandbox mode, False otherwise
+    """
+    # Skip validation in sandbox mode
+    if sandbox:
+        return True
+        
+    base_url = "https://zenodo.org"
+    
+    try:
+        # Try to get community info directly
+        response = requests.get(
+            f"{base_url}/api/communities/{community_id}",
+            timeout=10
+        )
+        
+        return response.status_code == 200
+        
+    except Exception as e:
+        print(f"Error validating community '{community_id}': {e}")
+        return False

@@ -4,24 +4,29 @@ Main application window class
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QFormLayout, QGroupBox, QLineEdit, QTextEdit, QComboBox, 
+    QFormLayout, QGroupBox, QLineEdit, QTextEdit, QTextBrowser, QComboBox, 
     QPushButton, QFileDialog, QProgressBar, QLabel, QMessageBox,
-    QTabWidget, QCheckBox, QDateEdit, QScrollArea
+    QTabWidget, QCheckBox, QDateEdit, QScrollArea, QCompleter
 )
-from PyQt6.QtCore import QSettings, QDate, Qt
+from PyQt6.QtCore import QSettings, QDate, Qt, QStringListModel
 import os
+import sys
 from pathlib import Path
 from typing import Dict, Any, List
 import zipfile
 import json
 
-from .widgets import QCollapsibleBox, AuthorWidget
+from .widgets import QCollapsibleBox, CreatorWidget, ContributorWidget
 from .upload_worker import ModularUploadWorker
 from .template_loader import populate_gui_from_template
 from .measurement_params import MeasurementParametersWidget
 from ..services import get_service_factory
-from ..services.metadata import Author, EDParameters, ZenodoMetadata, Funding
+from ..services.metadata import Creator, Contributor, EDParameters, ZenodoMetadata, Funding
 from ..services.file_packing import create_zip_from_folder
+
+def is_frozen_executable():
+    """Check if running as a PyInstaller executable"""
+    return getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
 
 
 class ZenodoUploaderApp(QMainWindow):
@@ -34,10 +39,13 @@ class ZenodoUploaderApp(QMainWindow):
         self.service_factory = get_service_factory()
         
         # Keep original QSettings for backward compatibility with GUI
-        self.settings = QSettings("ZenodoUploader", "ElectronDiffraction")
+        # Use unique organization name to avoid sharing settings with development version
+        self.settings = QSettings("ZEDD", "ZenodoElectronDiffractionDepositor")
         
         self.licenses = []
-        self.authors_list = []
+        # Lists to track dynamic widgets
+        self.creators_list = []
+        self.contributors_list = []
         self.upload_worker = None  # Track upload worker
         # Guard used to avoid re-entrant UI updates while loading metadata
         self._loading_metadata = False
@@ -53,7 +61,11 @@ class ZenodoUploaderApp(QMainWindow):
             self.load_licenses()
     
     def init_ui(self):
-        self.setWindowTitle("Zenodo Uploader - Electron Diffraction Data")
+        # Set title with indicator if running as executable
+        title = "ZEDD - Zenodo Electron Diffraction Depositor"
+        if is_frozen_executable():
+            title += " (Portable)"
+        self.setWindowTitle(title)
         self.setGeometry(100, 100, 1000, 800)
         
         # Create central widget and main layout
@@ -111,9 +123,15 @@ class ZenodoUploaderApp(QMainWindow):
         
     def load_settings(self):
         """Load saved settings"""
-        # Load API configuration
-        self.token_edit.setText(self.settings.value("api/token", ""))
-        self.sandbox_checkbox.setChecked(self.settings.value("api/sandbox", True, type=bool))
+        # Load API configuration - but don't load token in distributed executables
+        if is_frozen_executable():
+            # In distributed executable: don't load sensitive data like tokens
+            self.token_edit.setText("")
+            self.sandbox_checkbox.setChecked(True)  # Default to sandbox for safety
+        else:
+            # In development: load all settings normally
+            self.token_edit.setText(self.settings.value("api/token", ""))
+            self.sandbox_checkbox.setChecked(self.settings.value("api/sandbox", True, type=bool))
         
         # Try to load default values from templates/default_metadata.json if no saved settings exist
         default_metadata_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'templates', 'default_metadata.json')
@@ -125,30 +143,48 @@ class ZenodoUploaderApp(QMainWindow):
             except Exception as e:
                 print(f"Failed to load default metadata: {e}")
         
-        # Load saved author data or use defaults
-        authors_data = self.settings.value("authors", default_values.get("creators", []))
-        if authors_data:
-            for author_data in authors_data:
-                if len(self.authors_list) > 0:
-                    self.authors_list[0].set_data(author_data)
+        # Load saved creator data or use defaults
+        creators_data = self.settings.value("creators", default_values.get("creators", []))
+        if creators_data:
+            for creator_data in creators_data:
+                if len(self.creators_list) > 0:
+                    self.creators_list[0].set_data(creator_data)
                 else:
-                    self.add_author()
-                    self.authors_list[0].set_data(author_data)
+                    self.add_creator()
+                    self.creators_list[0].set_data(creator_data)
         
-        # Load saved funding data
-        funding_data = self.settings.value("funding", default_values.get("grants", []))
-        if funding_data:
-            for grant_data in funding_data:
-                if isinstance(grant_data, dict):
-                    self.add_funding()
-                    widget = self.funding_list[-1]
-                    if "funder" in grant_data:
-                        widget.property('funder_edit').setText(grant_data["funder"])
-                    if "award" in grant_data and isinstance(grant_data["award"], dict):
-                        if "number" in grant_data["award"]:
-                            widget.property('award_number_edit').setText(grant_data["award"]["number"])
-                        if "title" in grant_data["award"]:
-                            widget.property('award_title_edit').setText(grant_data["award"]["title"])
+        # Load saved contributor data or use defaults
+        contributors_data = self.settings.value("contributors", default_values.get("contributors", []))
+        if contributors_data:
+            for contributor_data in contributors_data:
+                self.add_contributor()
+                self.contributors_list[-1].set_data(contributor_data)
+        
+        # Load saved funding data - DISABLED: Zenodo API has issues with funding
+        # TODO: Users need to add funding information manually on Zenodo
+        # funding_data = self.settings.value("funding", default_values.get("grants", []))
+        # if funding_data:
+        #     for grant_data in funding_data:
+        #         if isinstance(grant_data, dict):
+        #             self.add_funding()
+        #             widget = self.funding_list[-1]
+        #             
+        #             # Handle new format
+        #             if "funder" in grant_data:
+        #                 widget.property('funder_edit').setText(grant_data["funder"])
+        #             if "award_number" in grant_data:
+        #                 widget.property('award_number_edit').setText(grant_data["award_number"])
+        #             if "award_title" in grant_data:
+        #                 widget.property('award_title_edit').setText(grant_data["award_title"])
+        #             if "url" in grant_data:
+        #                 widget.property('url_edit').setText(grant_data["url"])
+        #             
+        #             # Handle old format for backward compatibility
+        #             elif "award" in grant_data and isinstance(grant_data["award"], dict):
+        #                 if "number" in grant_data["award"]:
+        #                     widget.property('award_number_edit').setText(grant_data["award"]["number"])
+        #                 if "title" in grant_data["award"]:
+        #                     widget.property('award_title_edit').setText(grant_data["award"]["title"])
         
         # Load metadata fields from settings or defaults
         ed_params = default_values.get("ed_parameters", {})
@@ -224,17 +260,29 @@ class ZenodoUploaderApp(QMainWindow):
     
     def save_settings(self):
         """Save current settings"""
+        # Don't save settings in distributed executables to avoid storing user data
+        if is_frozen_executable():
+            return
+            
         # Save API configuration
         self.settings.setValue("api/token", self.token_edit.text())
         self.settings.setValue("api/sandbox", self.sandbox_checkbox.isChecked())
         
-        # Save author data
-        authors_data = []
-        for author_widget in self.authors_list:
-            author_data = author_widget.get_data()
-            if author_data.get("name"):
-                authors_data.append(author_data)
-        self.settings.setValue("authors", authors_data)
+        # Save creator data
+        creators_data = []
+        for creator_widget in self.creators_list:
+            creator_data = creator_widget.get_data()
+            if creator_data.get("name"):
+                creators_data.append(creator_data)
+        self.settings.setValue("creators", creators_data)
+        
+        # Save contributor data
+        contributors_data = []
+        for contributor_widget in self.contributors_list:
+            contributor_data = contributor_widget.get_data()
+            if contributor_data.get("name"):
+                contributors_data.append(contributor_data)
+        self.settings.setValue("contributors", contributors_data)
         
         # Save measurement parameters (new dict-based format)
         params = self.measurement_params_widget.get_parameters()
@@ -261,23 +309,35 @@ class ZenodoUploaderApp(QMainWindow):
         self.settings.setValue("metadata/notes", self.notes_edit.toPlainText())
         self.settings.setValue("metadata/publication_date", self.publication_date_edit.date().toString("yyyy-MM-dd"))
         
-        # Save funding data
-        funding_data = []
-        for widget in self.funding_list:
-            fund = {}
-            funder = widget.property('funder_edit').text().strip()
-            award_number = widget.property('award_number_edit').text().strip()
-            award_title = widget.property('award_title_edit').text().strip()
-            
-            if funder and award_number:
-                fund["funder"] = funder
-                fund["award"] = {
-                    "number": award_number,
-                    "title": award_title if award_title else award_number
-                }
-                funding_data.append(fund)
-                
-        self.settings.setValue("funding", funding_data)
+        # Save funding data - DISABLED: Zenodo API has issues with funding
+        # TODO: Users need to add funding information manually on Zenodo
+        # funding_data = []
+        # for widget in self.funding_list:
+        #     fund = {}
+        #     funder_edit = widget.property('funder_edit')
+        #     award_number_edit = widget.property('award_number_edit') 
+        #     award_title_edit = widget.property('award_title_edit')
+        #     url_edit = widget.property('url_edit')
+        #     
+        #     # Check if all edit widgets exist
+        #     if not all([funder_edit, award_number_edit, award_title_edit, url_edit]):
+        #         continue
+        #         
+        #     funder = funder_edit.text().strip()
+        #     award_number = award_number_edit.text().strip()
+        #     award_title = award_title_edit.text().strip()
+        #     url = url_edit.text().strip()
+        #     
+        #     if funder and award_number:
+        #         fund["funder"] = funder
+        #         fund["award_number"] = award_number
+        #         if award_title:
+        #             fund["award_title"] = award_title
+        #         if url:
+        #             fund["url"] = url
+        #         funding_data.append(fund)
+        #         
+        # self.settings.setValue("funding", funding_data)
     
     def on_token_changed(self):
         """Handle access token change"""
@@ -288,8 +348,33 @@ class ZenodoUploaderApp(QMainWindow):
         token = self.token_edit.text().strip()
         sandbox = self.sandbox_checkbox.isChecked()
         self.service_factory.update_api_config(token, sandbox)
+        
+        # Reset connection status when token changes
+        self.upload_button.setEnabled(False)
+        if hasattr(self, 'connection_status_label'):
+            if token:
+                self.update_connection_status(False, "Token changed - test connection")
+            else:
+                self.update_connection_status(False, "No API token entered")
+        
         if token:
             self.load_licenses()
+    
+    def on_sandbox_changed(self):
+        """Handle sandbox checkbox change"""
+        # Skip during metadata loading
+        if getattr(self, '_loading_metadata', False):
+            return
+            
+        token = self.token_edit.text().strip()
+        sandbox = self.sandbox_checkbox.isChecked()
+        self.service_factory.update_api_config(token, sandbox)
+        
+        # Reset connection status when sandbox mode changes
+        self.upload_button.setEnabled(False)
+        if hasattr(self, 'connection_status_label'):
+            mode = "sandbox" if sandbox else "production"
+            self.update_connection_status(False, f"Switched to {mode} - test connection")
     
     def on_publish_safety_changed(self):
         """Handle publish safety checkbox change"""
@@ -305,6 +390,7 @@ class ZenodoUploaderApp(QMainWindow):
         api = self.service_factory.get_repository_api()
         if not api:
             QMessageBox.warning(self, "Warning", "Please enter an access token first.")
+            self.update_connection_status(False, "No API token")
             return
         
         try:
@@ -312,10 +398,45 @@ class ZenodoUploaderApp(QMainWindow):
             depositions = api.list_depositions()
             QMessageBox.information(self, "Success", "Connection to Zenodo API successful!")
             self.upload_button.setEnabled(True)
+            self.update_connection_status(True, "Connected")
             
         except Exception as e:
             QMessageBox.critical(self, "Connection Failed", f"Failed to connect to Zenodo API:\n{str(e)}")
             self.upload_button.setEnabled(False)
+            self.update_connection_status(False, f"Connection failed: {str(e)[:30]}...")
+    
+    def update_connection_status(self, connected: bool, message: str = ""):
+        """Update the connection status indicator"""
+        mode = "Sandbox" if self.sandbox_checkbox.isChecked() else "Production"
+        
+        if connected:
+            # Upload tab indicator
+            self.connection_status_label.setText("✅ Connected")
+            self.connection_status_label.setStyleSheet("color: green; font-weight: bold; margin-left: 5px;")
+            self.connection_status_label.setToolTip("API connection successful. Upload is available.")
+            
+            # Configuration tab indicator  
+            if hasattr(self, 'config_connection_status_label'):
+                self.config_connection_status_label.setText(f"✅ Connected to Zenodo {mode}")
+                self.config_connection_status_label.setStyleSheet("color: green; font-weight: bold; padding: 5px;")
+                self.config_connection_status_label.setToolTip(f"Successfully connected to Zenodo {mode} API")
+        else:
+            # Upload tab indicator
+            self.connection_status_label.setText("❌ Not Connected")
+            self.connection_status_label.setStyleSheet("color: red; font-weight: bold; margin-left: 5px;")
+            tooltip = "API connection not established. Test connection in Configuration tab to enable upload."
+            if message:
+                tooltip += f"\nReason: {message}"
+            self.connection_status_label.setToolTip(tooltip)
+            
+            # Configuration tab indicator
+            if hasattr(self, 'config_connection_status_label'):
+                self.config_connection_status_label.setText(f"❌ Not Connected ({mode})")
+                self.config_connection_status_label.setStyleSheet("color: red; font-weight: bold; padding: 5px;")
+                config_tooltip = f"Not connected to Zenodo {mode} API."
+                if message:
+                    config_tooltip += f" Reason: {message}"
+                self.config_connection_status_label.setToolTip(config_tooltip)
     
     def load_licenses(self):
         """Load available licenses from Zenodo"""
@@ -508,33 +629,33 @@ class ZenodoUploaderApp(QMainWindow):
             # In case widget is already removed or deleted
             pass
     
-    def add_author(self):
-        """Add a new author input widget"""
-        author_widget = AuthorWidget()
+    def add_creator(self):
+        """Add a new creator input widget"""
+        creator_widget = CreatorWidget()
         
         # Add remove button
         remove_layout = QHBoxLayout()
         remove_btn = QPushButton("Remove")
-        remove_btn.clicked.connect(lambda: self.remove_author(author_widget, remove_layout))
+        remove_btn.clicked.connect(lambda: self.remove_creator(creator_widget, remove_layout))
         
         container = QWidget()
         container_layout = QVBoxLayout()
-        container_layout.addWidget(author_widget)
+        container_layout.addWidget(creator_widget)
         container_layout.addLayout(remove_layout)
         container.setLayout(container_layout)
         
         remove_layout.addStretch()
         remove_layout.addWidget(remove_btn)
         
-        self.authors_list.append(author_widget)
-        self.authors_widget_layout.addWidget(container)
+        self.creators_list.append(creator_widget)
+        self.creators_widget_layout.addWidget(container)
         
-        # Hide remove button if only one author
-        if len(self.authors_list) == 1:
+        # Hide remove button if only one creator
+        if len(self.creators_list) == 1:
             remove_btn.hide()
         else:
             # Show all remove buttons
-            for i, widget in enumerate(self.authors_list):
+            for i, widget in enumerate(self.creators_list):
                 parent = widget.parent()
                 if parent:
                     layout = parent.layout()
@@ -553,11 +674,20 @@ class ZenodoUploaderApp(QMainWindow):
         funder_edit = QLineEdit()
         funder_edit.setPlaceholderText("e.g., Engineering and Physical Sciences Research Council")
         
+        # Add autocomplete for common funders
+        common_funders = Funding.get_common_funders()
+        completer = QCompleter(common_funders, funder_edit)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        funder_edit.setCompleter(completer)
+        
         award_number_edit = QLineEdit()
         award_number_edit.setPlaceholderText("e.g., EP/X014444/1")
         
         award_title_edit = QLineEdit()
         award_title_edit.setPlaceholderText("Full name of the award (optional)")
+        
+        url_edit = QLineEdit()
+        url_edit.setPlaceholderText("URL to grant information (optional)")
         
         remove_btn = QPushButton("Remove")
         remove_btn.clicked.connect(lambda: self.remove_funding(container))
@@ -565,12 +695,14 @@ class ZenodoUploaderApp(QMainWindow):
         container_layout.addRow("Funder:", funder_edit)
         container_layout.addRow("Award Number:", award_number_edit)
         container_layout.addRow("Award Title:", award_title_edit)
+        container_layout.addRow("URL:", url_edit)
         container_layout.addRow("", remove_btn)
         
         container.setLayout(container_layout)
         container.setProperty('funder_edit', funder_edit)
         container.setProperty('award_number_edit', award_number_edit)
         container.setProperty('award_title_edit', award_title_edit)
+        container.setProperty('url_edit', url_edit)
         
         self.funding_layout.addWidget(container)
         self.funding_list.append(container)
@@ -621,14 +753,14 @@ class ZenodoUploaderApp(QMainWindow):
         except (ValueError, RuntimeError):
             pass
     
-    def remove_author(self, author_widget, remove_layout, force=False):
-        """Remove an author widget"""
-        if len(self.authors_list) <= 1 and not force:
+    def remove_creator(self, creator_widget, remove_layout, force=False):
+        """Remove a creator widget"""
+        if len(self.creators_list) <= 1 and not force:
             return
         
         try:
-            self.authors_list.remove(author_widget)
-            container = author_widget.parent()
+            self.creators_list.remove(creator_widget)
+            container = creator_widget.parent()
             if container:
                 container.setParent(None)
                 container.deleteLater()
@@ -636,9 +768,9 @@ class ZenodoUploaderApp(QMainWindow):
             # In case widget is already removed or deleted
             pass
         
-        # Hide remove button if only one author left
-        if len(self.authors_list) == 1:
-            widget = self.authors_list[0]
+        # Hide remove button if only one creator left
+        if len(self.creators_list) == 1:
+            widget = self.creators_list[0]
             parent = widget.parent()
             if parent:
                 layout = parent.layout()
@@ -648,6 +780,39 @@ class ZenodoUploaderApp(QMainWindow):
                         remove_btn = remove_layout.itemAt(1).widget()
                         if remove_btn:
                             remove_btn.hide()
+    
+    def add_contributor(self):
+        """Add a new contributor input widget"""
+        contributor_widget = ContributorWidget()
+        
+        # Add remove button
+        remove_layout = QHBoxLayout()
+        remove_btn = QPushButton("Remove")
+        remove_btn.clicked.connect(lambda: self.remove_contributor(contributor_widget, remove_layout))
+        
+        container = QWidget()
+        container_layout = QVBoxLayout()
+        container_layout.addWidget(contributor_widget)
+        container_layout.addLayout(remove_layout)
+        container.setLayout(container_layout)
+        
+        remove_layout.addStretch()
+        remove_layout.addWidget(remove_btn)
+        
+        self.contributors_list.append(contributor_widget)
+        self.contributors_widget_layout.addWidget(container)
+    
+    def remove_contributor(self, contributor_widget, remove_layout):
+        """Remove a contributor widget"""
+        try:
+            self.contributors_list.remove(contributor_widget)
+            container = contributor_widget.parent()
+            if container:
+                container.setParent(None)
+                container.deleteLater()
+        except (ValueError, RuntimeError):
+            # In case widget is already removed or deleted
+            pass
     
     def browse_file(self):
         """Browse for a file to upload"""
@@ -690,22 +855,36 @@ class ZenodoUploaderApp(QMainWindow):
         # Create ED parameters using the dynamic parameters
         ed_params = EDParameters(parameters=measurement_params)
         
-        # Create authors list
-        authors = []
-        for author_widget in self.authors_list:
-            author_data = author_widget.get_data()
-            if author_data.get("name"):
-                authors.append(Author(
-                    name=author_data["name"],
-                    affiliation=author_data.get("affiliation"),
-                    orcid=author_data.get("orcid")
+        # Create creators list
+        creators = []
+        for creator_widget in self.creators_list:
+            creator_data = creator_widget.get_data()
+            if creator_data.get("name"):
+                creators.append(Creator(
+                    name=creator_data["name"],
+                    affiliation=creator_data.get("affiliation"),
+                    orcid=creator_data.get("orcid")
+                    # Note: type field removed - only for Contributors, not Creators
+                ))
+        
+        # Create contributors list
+        contributors = []
+        for contributor_widget in self.contributors_list:
+            contributor_data = contributor_widget.get_data()
+            if contributor_data.get("name"):
+                contributors.append(Contributor(
+                    name=contributor_data["name"],
+                    affiliation=contributor_data.get("affiliation"),
+                    orcid=contributor_data.get("orcid"),
+                    type=contributor_data.get("type")
                 ))
         
         # Create metadata object
         metadata = ZenodoMetadata(
             title=self.title_edit.text().strip(),
             description=self.description_edit.toPlainText().strip(),
-            creators=authors,
+            creators=creators,
+            contributors=contributors,
             upload_type=self.upload_type_combo.currentText(),
             access_right=self.access_right_combo.currentText(),
             license=self.license_combo.currentData(),
@@ -719,28 +898,31 @@ class ZenodoUploaderApp(QMainWindow):
         funding = []
         for i in range(len(self.funding_list)):
             widget = self.funding_list[i]
-            funder = widget.property('funder_edit').text().strip()
-            award_number = widget.property('award_number_edit').text().strip()
-            award_title = widget.property('award_title_edit').text().strip()
+            funder_edit = widget.property('funder_edit')
+            award_number_edit = widget.property('award_number_edit')
+            award_title_edit = widget.property('award_title_edit')
+            url_edit = widget.property('url_edit')
+            
+            # Check if all edit widgets exist
+            if not all([funder_edit, award_number_edit, award_title_edit, url_edit]):
+                continue
+                
+            funder = funder_edit.text().strip()
+            award_number = award_number_edit.text().strip()
+            award_title = award_title_edit.text().strip()
+            url = url_edit.text().strip()
             
             if funder and award_number:
-                funding.append({
-                    "funder": funder,
-                    "award": {
-                        "number": award_number,
-                        "title": award_title if award_title else award_number
-                    }
-                })
+                fund = Funding(
+                    funder=funder,
+                    award_number=award_number,
+                    award_title=award_title if award_title else None,
+                    url=url if url else None
+                )
+                funding.append(fund)
         
         if funding:
-            funding_data = []
-            for grant in funding:
-                fund = Funding(
-                    funder=grant["funder"],
-                    award_number=grant["award"]["number"],
-                    award_title=grant["award"]["title"]
-                )
-                funding_data.append(fund)
+            funding_data = funding
             metadata.funding = funding_data
         
         return metadata.to_dict()
@@ -858,25 +1040,36 @@ class ZenodoUploaderApp(QMainWindow):
             if prereserve:
                 doi = prereserve.get("doi", "")
         
-        summary = "✅ Upload completed successfully!\n\n"
+        summary = "<p>✅ <b>Upload completed successfully!</b></p>"
         if record_url:
-            summary += f"📄 Record URL: {record_url}\n"
+            summary += f"<p>📄 <b>Record URL:</b> <a href='{record_url}'>{record_url}</a></p>"
         if doi:
-            summary += f"🏷️  DOI: {doi}\n"
+            summary += f"<p>🏷️ <b>DOI:</b> {doi}</p>"
             
         # Add some helpful information
         if result.get("submitted", False):
-            summary += "\n📢 Your record has been published and is now live!"
+            summary += "<p>📢 Your record has been published and is now live!</p>"
         else:
-            summary += "\n📝 Your record has been saved as a draft. You can publish it later from the Zenodo website."
+            summary += "<p>📝 Your record has been saved as a draft. You can publish it later from the Zenodo website.</p>"
+            
+        # Add manual steps reminder
+        summary += "<br><p><b>⚠️ Manual Steps Required:</b></p>"
+        summary += "<p>Please visit your record on Zenodo to manually add:</p>"
+        summary += "<ul><li>Funding information (grants)</li>"
+        summary += "<li>Creator roles/types for each author</li></ul>"
+        summary += "<p><i>These features are not fully supported via the API yet.</i></p>"
         
-        self.results_text.setText(summary)
+        self.results_text.setHtml(summary)
         
         # Save settings after successful upload
         self.save_settings()
         
-        # Show success message
-        QMessageBox.information(self, "Success", "Upload completed successfully!")
+        # Show success message with manual steps reminder
+        success_msg = "Upload completed successfully!\n\n"
+        success_msg += "⚠️ Don't forget to manually add on Zenodo:\n"
+        success_msg += "• Funding information (grants)\n"
+        success_msg += "• Creator roles/types for each author"
+        QMessageBox.information(self, "Success", success_msg)
     
     def on_upload_failed(self, error_message: str):
         """Handle upload failure"""        
@@ -985,7 +1178,7 @@ class ZenodoUploaderApp(QMainWindow):
     
     def _gui_to_template(self):
         """Extract current GUI state into a MetadataTemplate"""
-        from ..services.templates import MetadataTemplate, TemplateAuthor, TemplateFunding, TemplateCommunity, TemplateEDParameters
+        from ..services.templates import MetadataTemplate, TemplateCreator, TemplateFunding, TemplateCommunity, TemplateEDParameters
         
         # Basic fields
         template = MetadataTemplate(
@@ -1001,27 +1194,39 @@ class ZenodoUploaderApp(QMainWindow):
         
         # Authors
         template.creators = []
-        for author_widget in self.authors_list:
-            author_data = author_widget.get_data()
-            if author_data.get("name"):  # Only add authors with names
-                template.creators.append(TemplateAuthor(
-                    name=author_data.get("name", ""),
-                    affiliation=author_data.get("affiliation", ""),
-                    orcid=author_data.get("orcid", "")
+        for creator_widget in self.creators_list:
+            creator_data = creator_widget.get_data()
+            if creator_data.get("name"):  # Only add creators with names
+                template.creators.append(TemplateCreator(
+                    name=creator_data.get("name", ""),
+                    affiliation=creator_data.get("affiliation", ""),
+                    orcid=creator_data.get("orcid", "")
+                    # Note: type field removed - TemplateCreator is for creators only
                 ))
         
         # Funding
         template.grants = []
         for container in self.funding_list:
-            funder = container.property('funder_edit').text().strip()
-            award_number = container.property('award_number_edit').text().strip()
-            award_title = container.property('award_title_edit').text().strip()
+            funder_edit = container.property('funder_edit')
+            award_number_edit = container.property('award_number_edit')
+            award_title_edit = container.property('award_title_edit')
+            url_edit = container.property('url_edit')
+            
+            # Check if all edit widgets exist
+            if not all([funder_edit, award_number_edit, award_title_edit, url_edit]):
+                continue
+            
+            funder = funder_edit.text().strip()
+            award_number = award_number_edit.text().strip()
+            award_title = award_title_edit.text().strip()
+            url = url_edit.text().strip()
             
             if funder and award_number:
                 template.grants.append(TemplateFunding(
                     funder=funder,
                     award_number=award_number,
-                    award_title=award_title
+                    award_title=award_title,
+                    url=url if url else None
                 ))
         
         # Communities
@@ -1053,16 +1258,34 @@ class ZenodoUploaderApp(QMainWindow):
         
         self.sandbox_checkbox = QCheckBox("Use Sandbox (for testing)")
         self.sandbox_checkbox.setChecked(True)
+        self.sandbox_checkbox.stateChanged.connect(self.on_sandbox_changed)
         
         self.test_button = QPushButton("Test Connection")
         self.test_button.clicked.connect(self.test_connection)
         
+        # Connection status indicator for Configuration tab
+        self.config_connection_status_label = QLabel("❌ Not Connected")
+        self.config_connection_status_label.setStyleSheet("color: red; font-weight: bold; padding: 5px;")
+        self.config_connection_status_label.setToolTip("API connection status")
+        
         api_layout.addRow("Access Token:", self.token_edit)
         api_layout.addRow("", self.sandbox_checkbox)
         api_layout.addRow("", self.test_button)
+        api_layout.addRow("Connection Status:", self.config_connection_status_label)
         
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
+        
+        # Add notice for portable version
+        if is_frozen_executable():
+            portable_notice = QLabel("""
+            <p><b>ℹ️ Portable Version Notice:</b><br>
+            This is the portable executable version. Settings are not saved between sessions for privacy and security. 
+            You'll need to enter your access token each time you start the application.</p>
+            """)
+            portable_notice.setWordWrap(True)
+            portable_notice.setStyleSheet("QLabel { background-color: #e8f4fd; padding: 10px; border: 1px solid #b3d9f2; border-radius: 5px; }")
+            layout.addWidget(portable_notice)
         
         # Instructions
         instructions = QLabel("""
@@ -1159,23 +1382,39 @@ class ZenodoUploaderApp(QMainWindow):
         layout.addWidget(basic_box)
         
         # Authors
-        authors_box = QCollapsibleBox("Authors", collapsed=True)
-        authors_layout = QVBoxLayout()
+        creators_box = QCollapsibleBox("Creators", collapsed=True)
+        creators_layout = QVBoxLayout()
         
-        self.authors_widget = QWidget()
-        self.authors_widget_layout = QVBoxLayout()
-        self.authors_widget.setLayout(self.authors_widget_layout)
+        self.creators_widget = QWidget()
+        self.creators_widget_layout = QVBoxLayout()
+        self.creators_widget.setLayout(self.creators_widget_layout)
         
-        add_author_btn = QPushButton("Add Author")
-        add_author_btn.clicked.connect(self.add_author)
+        add_creator_btn = QPushButton("Add Creator")
+        add_creator_btn.clicked.connect(self.add_creator)
         
-        authors_layout.addWidget(self.authors_widget)
-        authors_layout.addWidget(add_author_btn)
-        authors_box.setContentLayout(authors_layout)
-        layout.addWidget(authors_box)
+        creators_layout.addWidget(self.creators_widget)
+        creators_layout.addWidget(add_creator_btn)
+        creators_box.setContentLayout(creators_layout)
+        layout.addWidget(creators_box)
         
-        # Add first author by default
-        self.add_author()
+        # Add first creator by default
+        self.add_creator()
+        
+        # Contributors section
+        contributors_box = QCollapsibleBox("Contributors (Optional)", collapsed=True)
+        contributors_layout = QVBoxLayout()
+        
+        self.contributors_widget = QWidget()
+        self.contributors_widget_layout = QVBoxLayout()
+        self.contributors_widget.setLayout(self.contributors_widget_layout)
+        
+        add_contributor_btn = QPushButton("Add Contributor")
+        add_contributor_btn.clicked.connect(self.add_contributor)
+        
+        contributors_layout.addWidget(self.contributors_widget)
+        contributors_layout.addWidget(add_contributor_btn)
+        contributors_box.setContentLayout(contributors_layout)
+        layout.addWidget(contributors_box)
         
         # Additional metadata
         additional_box = QCollapsibleBox("Additional Information", collapsed=True)
@@ -1199,24 +1438,28 @@ class ZenodoUploaderApp(QMainWindow):
         additional_box.setContentLayout(additional_layout)
         layout.addWidget(additional_box)
         
-        # Funding
-        funding_box = QCollapsibleBox("Funding", collapsed=True)
-        funding_layout = QVBoxLayout()
+        # Funding - DISABLED: Zenodo API has issues with funding
+        # TODO: Users need to add funding information manually on Zenodo
+        # funding_box = QCollapsibleBox("Funding", collapsed=True)
+        # funding_layout = QVBoxLayout()
+        # 
+        # # Widget to hold the list of funding entries
+        # self.funding_widget = QWidget()
+        # self.funding_layout = QVBoxLayout()
+        # self.funding_widget.setLayout(self.funding_layout)
+        # self.funding_list = []
+        # 
+        # # Add funding button
+        # add_funding_btn = QPushButton("Add Funding")
+        # add_funding_btn.clicked.connect(self.add_funding)
+        # 
+        # funding_layout.addWidget(self.funding_widget)
+        # funding_layout.addWidget(add_funding_btn)
+        # funding_box.setContentLayout(funding_layout)
+        # layout.addWidget(funding_box)
         
-        # Widget to hold the list of funding entries
-        self.funding_widget = QWidget()
-        self.funding_layout = QVBoxLayout()
-        self.funding_widget.setLayout(self.funding_layout)
+        # Initialize funding list as empty (to avoid errors)
         self.funding_list = []
-        
-        # Add funding button
-        add_funding_btn = QPushButton("Add Funding")
-        add_funding_btn.clicked.connect(self.add_funding)
-        
-        funding_layout.addWidget(self.funding_widget)
-        funding_layout.addWidget(add_funding_btn)
-        funding_box.setContentLayout(funding_layout)
-        layout.addWidget(funding_box)
         
         # Communities
         communities_box = QCollapsibleBox("Communities", collapsed=True)
@@ -1327,11 +1570,17 @@ class ZenodoUploaderApp(QMainWindow):
         self.upload_button.clicked.connect(self.handle_upload_button_click)
         self.upload_button.setEnabled(False)
         
+        # Connection status indicator
+        self.connection_status_label = QLabel("❌ Not Connected")
+        self.connection_status_label.setStyleSheet("color: red; font-weight: bold; margin-left: 5px;")
+        self.connection_status_label.setToolTip("API connection status. Test connection in Configuration tab to enable upload.")
+        
         self.validate_button = QPushButton("Validate Metadata")
         self.validate_button.clicked.connect(self.validate_metadata)
         
         controls_layout.addWidget(self.validate_button)
         controls_layout.addWidget(self.upload_button)
+        controls_layout.addWidget(self.connection_status_label)
         controls_layout.addStretch()
         
         layout.addLayout(controls_layout)
@@ -1344,12 +1593,27 @@ class ZenodoUploaderApp(QMainWindow):
         layout.addWidget(self.status_label)
         
         # Results
-        self.results_text = QTextEdit()
+        self.results_text = QTextBrowser()
         self.results_text.setMaximumHeight(150)
         self.results_text.setPlaceholderText("Upload results will appear here...")
+        # QTextBrowser natively supports clickable links
+        self.results_text.setReadOnly(True)
+        self.results_text.setOpenExternalLinks(True)
         
         layout.addWidget(QLabel("Results:"))
         layout.addWidget(self.results_text)
+        
+        # Add reminder about manual steps
+        manual_steps_label = QLabel()
+        manual_steps_label.setText(
+            "<p><b>ℹ️ Important Reminder:</b> After uploading, please visit your record on Zenodo to manually add:</p>"
+            "<ul><li><b>Funding information</b> (grants/awards)</li>"
+            "<li><b>Creator roles/types</b> for each author (e.g., Conceptualization, Data curation, etc.)</li></ul>"
+            "<p><i>These features are not fully supported via the API yet.</i></p>"
+        )
+        manual_steps_label.setWordWrap(True)
+        manual_steps_label.setStyleSheet("QLabel { background-color: #f0f8ff; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }")
+        layout.addWidget(manual_steps_label)
         
         layout.addStretch()
         tab.setLayout(layout)
