@@ -235,7 +235,7 @@ class EDParameters:
         ]
         
         # Sort sections for consistent ordering (put "General" last)
-        section_order = ["General", "Instrumental", "Experimental", "Sample", "Software & Files", "Other"]
+        section_order = ["General", "Instrumental", "Experimental", "Sample description", "Software & Files", "Other"]
         ordered_sections = []
         for section in section_order:
             if section in sections:
@@ -286,7 +286,9 @@ class EDParameters:
         # Add rows for each parameter that has a value
         for key, value in self.parameters.items():
             if value:  # Only include non-empty values
-                lines.append(f"| {key} | {value} |")
+                # Handle multiline values in markdown
+                formatted_value = value.replace('\n', '<br>') if '\n' in value else value
+                lines.append(f"| {key} | {formatted_value} |")
         
         return '\n'.join(lines)
 

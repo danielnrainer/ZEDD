@@ -8,7 +8,7 @@ and formats them as an HTML table for Zenodo deposition.
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QPushButton, QLabel, QScrollArea, QFrame, QComboBox,
-    QTextEdit, QTabWidget
+    QTextEdit, QTabWidget, QTextBrowser
 )
 from PyQt6.QtCore import Qt, QTimer
 from typing import Dict, List
@@ -149,9 +149,8 @@ class MeasurementParametersWidget(QWidget):
         self.preview_tabs = QTabWidget()
         
         # Rendered HTML tab
-        self.rendered_view = QTextEdit()
+        self.rendered_view = QTextBrowser()
         self.rendered_view.setMaximumHeight(200)
-        self.rendered_view.setReadOnly(True)
         self.rendered_view.document().setDefaultStyleSheet("""
             table { border-collapse: collapse; width: 100%; }
             th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }

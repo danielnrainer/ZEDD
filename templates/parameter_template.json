@@ -58,7 +58,10 @@
             "Collection temperature [K]": "175",
 
             "Software for data collection": "CrysAlisPro 1.171.44.100a",
-            "Software for data processing": "CrysAlisPro 1.171.44.101a"
+            "Software for data processing": "CrysAlisPro 1.171.44.101a",
+            "Image folders": "./frames/xxx.rodhypix\n./frames/xxx.tiff",
+            "Image format": ".rodhypix\n.tiff",
+            "Additional files": "none"
         }
     }
 }

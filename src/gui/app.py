@@ -53,9 +53,16 @@ class ZenodoUploaderApp(QMainWindow):
         self.init_ui()
         self.load_settings()
         
-        # Initialize services if token is available
-        token = self.settings.value("api/token", "")
-        sandbox = self.settings.value("api/sandbox", True, type=bool)
+        # Initialize services if token is available - but don't load token in executables
+        if is_frozen_executable():
+            # In executable mode: never initialize with saved tokens
+            token = ""
+            sandbox = True
+        else:
+            # In development mode: use saved tokens
+            token = self.settings.value("api/token", "")
+            sandbox = self.settings.value("api/sandbox", True, type=bool)
+            
         if token:
             self.service_factory.update_api_config(token, sandbox)
             self.load_licenses()
@@ -133,16 +140,87 @@ class ZenodoUploaderApp(QMainWindow):
             self.token_edit.setText(self.settings.value("api/token", ""))
             self.sandbox_checkbox.setChecked(self.settings.value("api/sandbox", True, type=bool))
         
-        # Try to load default values from templates/default_metadata.json if no saved settings exist
-        default_metadata_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'templates', 'default_metadata.json')
+        # Try to load default values from templates
+        # Always prioritize parameter_template.json for consistent best practices
+        template_path = None
         default_values = {}
-        if os.path.exists(default_metadata_path):
-            try:
-                with open(default_metadata_path, 'r', encoding='utf-8') as f:
-                    default_values = json.loads(f.read())
-            except Exception as e:
-                print(f"Failed to load default metadata: {e}")
         
+        # First try parameter_template.json (preferred)
+        template_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'templates', 'parameter_template.json')
+        if not os.path.exists(template_path):
+            # Fallback to default_metadata.json if parameter_template doesn't exist
+            template_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'templates', 'default_metadata.json')
+        
+        if template_path and os.path.exists(template_path):
+            try:
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    default_values = json.loads(f.read())
+                print(f"Loaded template for best practices: {os.path.basename(template_path)}")
+            except Exception as e:
+                print(f"Failed to load template metadata from {template_path}: {e}")
+        
+        # Always populate all fields from template for best practices and consistency
+        if default_values:
+            if is_frozen_executable():
+                # In executable mode: always use complete template loading
+                self._load_complete_template(default_values)
+            else:
+                # In development mode: use template but allow saved settings to override
+                self._load_template_with_saved_overrides(default_values)
+        else:
+            # Fallback if no template available
+            self._load_individual_settings({})
+    
+    def _load_complete_template(self, template_data: dict):
+        """Load complete template data (used in executable mode)"""
+        from .template_loader import populate_gui_from_template
+        from ..services.templates import MetadataTemplate
+        
+        try:
+            # Convert dictionary to MetadataTemplate object
+            template = MetadataTemplate.from_dict(template_data)
+            # Use the existing template loader to populate the GUI
+            populate_gui_from_template(self, template)
+        except Exception as e:
+            print(f"Failed to load complete template: {e}")
+            # Fallback to individual settings loading
+            self._load_individual_settings(template_data)
+    
+    def _load_template_with_saved_overrides(self, template_data: dict):
+        """Load template but allow saved settings to override (used in development mode)"""
+        from .template_loader import populate_gui_from_template
+        from ..services.templates import MetadataTemplate
+        
+        try:
+            # First load the complete template
+            template = MetadataTemplate.from_dict(template_data)
+            populate_gui_from_template(self, template)
+            
+            # Then override with saved settings where they exist
+            # Only override fields that have been explicitly saved by user
+            saved_title = self.settings.value("metadata/title", "")
+            if saved_title and saved_title != template_data.get("title", ""):
+                self.title_edit.setText(saved_title)
+                
+            saved_desc = self.settings.value("metadata/description", "")
+            if saved_desc and saved_desc != template_data.get("description", ""):
+                self.description_edit.setPlainText(saved_desc)
+                
+            # Override other key fields if explicitly saved
+            saved_keywords = self.settings.value("metadata/keywords", "")
+            if saved_keywords and saved_keywords != template_data.get("keywords", []):
+                if isinstance(saved_keywords, list):
+                    self.keywords_edit.setText(", ".join(saved_keywords))
+                else:
+                    self.keywords_edit.setText(str(saved_keywords))
+            
+        except Exception as e:
+            print(f"Failed to load template with overrides: {e}")
+            # Fallback to individual settings loading
+            self._load_individual_settings(template_data)
+    
+    def _load_individual_settings(self, default_values: dict):
+        """Load individual saved settings or template defaults (used in development mode)"""
         # Load saved creator data or use defaults
         creators_data = self.settings.value("creators", default_values.get("creators", []))
         if creators_data:
@@ -188,28 +266,40 @@ class ZenodoUploaderApp(QMainWindow):
         
         # Load metadata fields from settings or defaults
         ed_params = default_values.get("ed_parameters", {})
-        self.title_edit.setText(self.settings.value("metadata/title", default_values.get("title", "")))
-        self.description_edit.setText(self.settings.value("metadata/description", default_values.get("description", "")))
+        params_dict = {}
         
-        # Set upload type
+        # Handle both old and new format
+        if isinstance(ed_params, dict):
+            if "parameters" in ed_params:
+                # New format with parameters dict
+                params_dict = ed_params["parameters"]
+            else:
+                # Old format - direct key-value pairs (backward compatibility)
+                params_dict = {k: str(v) for k, v in ed_params.items() if v is not None}
+        
+        # Load individual field settings or use template defaults
+        self.title_edit.setText(self.settings.value("metadata/title", default_values.get("title", "")))
+        self.description_edit.setPlainText(self.settings.value("metadata/description", default_values.get("description", "")))
+        
+        # Upload type combo
         upload_type = self.settings.value("metadata/upload_type", default_values.get("upload_type", "dataset"))
         index = self.upload_type_combo.findText(upload_type)
         if index >= 0:
             self.upload_type_combo.setCurrentIndex(index)
             
-        # Set access right
+        # Access right combo  
         access_right = self.settings.value("metadata/access_right", default_values.get("access_right", "open"))
         index = self.access_right_combo.findText(access_right)
         if index >= 0:
             self.access_right_combo.setCurrentIndex(index)
-            
+        
         # Keywords
         keywords = self.settings.value("metadata/keywords", default_values.get("keywords", []))
-        if isinstance(keywords, list):
-            self.keywords_edit.setText(", ".join(keywords))
-            
-        # Notes
-        self.notes_edit.setText(self.settings.value("metadata/notes", default_values.get("notes", "")))
+        if keywords:
+            if isinstance(keywords, list):
+                self.keywords_edit.setText(", ".join(keywords))
+            else:
+                self.keywords_edit.setText(str(keywords))
         
         # Publication date
         pub_date_str = self.settings.value("metadata/publication_date", default_values.get("publication_date", ""))
@@ -218,40 +308,11 @@ class ZenodoUploaderApp(QMainWindow):
                 date = QDate.fromString(pub_date_str, "yyyy-MM-dd")
                 if date.isValid():
                     self.publication_date_edit.setDate(date)
-            except:
+            except Exception:
                 pass
-                
-        # Load measurement parameters from settings or defaults
-        # First, try to load from QSettings as individual fields (backward compatibility)
-        params_dict = {}
-        for key, fallback_key in [
-            ("instrument", "instrument"), ("detector", "detector"), 
-            ("collection_mode", "collection_mode"), ("voltage", "voltage"),
-            ("wavelength", "wavelength"), ("exposure_time", "exposure_time"),
-            ("rotation_range", "rotation_range"), ("temperature", "temperature"),
-            ("crystal_size", "crystal_size"), ("sample_composition", "sample_composition")
-        ]:
-            value = self.settings.value(f"ed/{key}", ed_params.get(fallback_key, ""))
-            if value:
-                # Convert from snake_case to Title Case for display
-                display_key = key.replace('_', ' ').title()
-                if key == "rotation_range":
-                    display_key = "Rotation Range"
-                elif key == "exposure_time":
-                    display_key = "Exposure Time"
-                elif key == "sample_composition":
-                    display_key = "Sample Composition"
-                elif key == "crystal_size":
-                    display_key = "Crystal Size"
-                elif key == "collection_mode":
-                    display_key = "Collection Mode"
-                params_dict[display_key] = value
-                
-        # Check if there's a newer dict-based format saved
-        saved_params = self.settings.value("ed/parameters", {})
-        if isinstance(saved_params, dict) and saved_params:
-            params_dict.update(saved_params)
-            
+        
+        self.notes_edit.setPlainText(self.settings.value("metadata/notes", default_values.get("notes", "")))
+        
         # Populate the measurement parameters widget
         self.measurement_params_widget.clear_parameters()
         for key, value in params_dict.items():
