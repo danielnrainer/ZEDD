@@ -17,8 +17,9 @@ project_root = Path('.')
 
 # Data files to include
 datas = [
-    # Include templates directory
-    ('templates', 'templates')
+    # Include templates in the templatesdirectory
+    ('templates\app_config.json', 'templates'),
+    ('templates\parameter_template.json', 'templates')
 ]
 
 # Hidden imports that PyInstaller might miss

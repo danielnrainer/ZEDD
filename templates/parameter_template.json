@@ -4,7 +4,6 @@
     "upload_type": "dataset",
     "access_right": "open",
     "license": "cc-by-4.0",
-    "publication_date": "2025-09-25",
     "keywords": [
         "3D electron diffraction",
         "electron crystallography",
@@ -33,7 +32,6 @@
             "Collection site": "University of Southampton, NCS/NEDF",
             "Sample label(s)": "",
             "Crystal structure deposit": "CSD - to be deposited",
-            "Data availability": "Open access via Zenodo",
             
             "Instrument": "Rigaku XtaLAB Synergy-ED, electron diffractometer",
             "Radiation source": "LaB6 filament",
