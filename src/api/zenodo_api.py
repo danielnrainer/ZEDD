@@ -41,6 +41,74 @@ class ZenodoRepositoryAPI(RepositoryAPI):
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
     
+    def test_metadata(self, metadata: Dict[str, Any]) -> tuple[bool, str, Optional[int]]:
+        """
+        Test if metadata is accepted by Zenodo by creating and deleting a draft deposition.
+        
+        This performs a real API test by:
+        1. Creating a draft deposition with the metadata
+        2. If successful, immediately deleting the draft
+        3. Returning success/failure information
+        
+        Args:
+            metadata: Metadata dictionary to test
+            
+        Returns:
+            Tuple of (success, message, deposition_id)
+            - success: True if metadata was accepted
+            - message: Success message or error description
+            - deposition_id: ID of created deposition (None if failed)
+        """
+        deposition_id = None
+        try:
+            # Try to create a deposition with this metadata
+            url = f"{self.base_url}/deposit/depositions"
+            headers = {"Content-Type": "application/json"}
+            
+            data = {"metadata": metadata}
+            response = self.session.post(url, json=data, headers=headers)
+            response.raise_for_status()
+            
+            result = response.json()
+            deposition_id = result['id']
+            
+            # Success! Now clean up by deleting the test deposition
+            try:
+                self.delete_deposition(deposition_id)
+                return (True, f"✅ Metadata accepted by Zenodo! (Test deposition {deposition_id} created and deleted)", deposition_id)
+            except:
+                # Deletion failed, but metadata was accepted
+                return (True, f"✅ Metadata accepted by Zenodo! Note: Test deposition {deposition_id} could not be auto-deleted. Please delete it manually.", deposition_id)
+            
+        except requests.exceptions.RequestException as e:
+            # Extract error details from response
+            error_msg = self._extract_metadata_error(e)
+            return (False, f"❌ Zenodo rejected the metadata:\n{error_msg}", deposition_id)
+        except Exception as e:
+            return (False, f"❌ Error testing metadata: {str(e)}", deposition_id)
+    
+    def _extract_metadata_error(self, error: requests.RequestException) -> str:
+        """Extract detailed error information from Zenodo API response"""
+        if hasattr(error, 'response') and error.response is not None:
+            try:
+                error_data = error.response.json()
+                if 'errors' in error_data:
+                    error_lines = []
+                    for err in error_data['errors']:
+                        field = err.get('field', 'unknown')
+                        message = err.get('messages', [err.get('message', 'unknown error')])
+                        if isinstance(message, list):
+                            for msg in message:
+                                error_lines.append(f"  • {field}: {msg}")
+                        else:
+                            error_lines.append(f"  • {field}: {message}")
+                    return "\n".join(error_lines)
+                elif 'message' in error_data:
+                    return error_data['message']
+            except (ValueError, KeyError):
+                pass
+        return str(error)
+    
     def create_deposition(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new deposition"""
         try:
@@ -60,25 +128,62 @@ class ZenodoRepositoryAPI(RepositoryAPI):
             raise APIError(f"Failed to create deposition: {str(e)}")
     
     def upload_file(self, deposition_id: int, file_path: str, 
-                   progress_callback: Optional[ProgressCallback] = None) -> Dict[str, Any]:
-        """Upload a file to a deposition using the new files API"""
+                   progress_callback: Optional[ProgressCallback] = None,
+                   cancel_checker: Optional[callable] = None) -> Dict[str, Any]:
+        """Upload a file to a deposition using the new bucket API
+        
+        Uses the bucket API as recommended in https://github.com/zenodo/zenodo/issues/833
+        This allows uploading files larger than 100MB by streaming binary content.
+        
+        Implementation follows the pattern from @jakelever and @lnielsen:
+        1. Get bucket URL from deposition
+        2. PUT file directly to bucket/<filename> with binary stream
+        3. Use Authorization Bearer header instead of query params
+        
+        Args:
+            deposition_id: ID of the deposition
+            file_path: Path to file to upload
+            progress_callback: Optional callback for upload progress
+            cancel_checker: Optional function that returns True if upload should be cancelled
+        """
         try:
-            # Get the deposition to get the bucket URL
+            # Step 1: Get the deposition to extract the bucket URL
             deposition_url = f"{self.base_url}/deposit/depositions/{deposition_id}"
             response = self.session.get(deposition_url)
             response.raise_for_status()
             
             bucket_url = response.json()["links"]["bucket"]
             filename = Path(file_path).name
+            
+            # Step 2: Upload directly to bucket using PUT
             upload_url = f"{bucket_url}/{filename}"
             
-            # Use the progress file wrapper for upload tracking
-            with ProgressFileWrapper(file_path, progress_callback) as pf:
-                response = self.session.put(upload_url, data=pf)
+            # Set proper headers as per Zenodo bucket API requirements
+            # Using Authorization header instead of query params for better compatibility
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/octet-stream",
+                "Authorization": f"Bearer {self.access_token}"
+            }
+            
+            # Step 3: Stream the file content using PUT request
+            with ProgressFileWrapper(file_path, progress_callback, cancel_checker) as pf:
+                # Note: Don't use session here to avoid adding access_token as query param
+                # The bucket API works best with Authorization header only
+                response = requests.put(
+                    upload_url, 
+                    data=pf,
+                    headers=headers,
+                    timeout=(30, 600)  # Longer timeout for large files
+                )
             
             response.raise_for_status()
             return response.json()
             
+        except RuntimeError as e:
+            if "cancelled" in str(e).lower():
+                raise APIError("Upload cancelled by user")
+            raise
         except requests.exceptions.Timeout:
             raise APIError("Upload timed out. Please check your connection and try again.")
         except requests.exceptions.RequestException as e:
@@ -162,6 +267,18 @@ class ZenodoRepositoryAPI(RepositoryAPI):
             self._handle_request_error(e, "get deposition")
         except Exception as e:
             raise APIError(f"Failed to get deposition: {str(e)}")
+    
+    def delete_deposition(self, deposition_id: int) -> None:
+        """Delete a deposition (only works for unpublished depositions)"""
+        try:
+            url = f"{self.base_url}/deposit/depositions/{deposition_id}"
+            response = self.session.delete(url)
+            response.raise_for_status()
+            
+        except requests.exceptions.RequestException as e:
+            self._handle_request_error(e, "delete deposition")
+        except Exception as e:
+            raise APIError(f"Failed to delete deposition: {str(e)}")
     
     def delete_deposition_file(self, deposition_id: int, file_id: str) -> None:
         """Delete a file from a deposition"""
@@ -256,16 +373,19 @@ class ZenodoRepositoryAPI(RepositoryAPI):
 class ProgressFileWrapper:
     """File wrapper that reports upload progress"""
     
-    def __init__(self, file_path: str, progress_callback: Optional[ProgressCallback] = None):
+    def __init__(self, file_path: str, progress_callback: Optional[ProgressCallback] = None,
+                 cancel_checker: Optional[callable] = None):
         """
         Initialize progress file wrapper
         
         Args:
             file_path: Path to file to wrap
             progress_callback: Optional progress callback
+            cancel_checker: Optional function that returns True if upload should be cancelled
         """
         self.file_path = file_path
         self.progress_callback = progress_callback
+        self.cancel_checker = cancel_checker
         self.uploaded = 0
         self.total_size = Path(file_path).stat().st_size
         self._file = None
@@ -274,6 +394,14 @@ class ProgressFileWrapper:
         """Read chunk and update progress"""
         if self._file is None:
             raise RuntimeError("File not opened")
+        
+        # Check for cancellation before reading next chunk
+        if self.cancel_checker and self.cancel_checker():
+            # Close file and raise exception to stop the upload
+            if self._file:
+                self._file.close()
+                self._file = None
+            raise RuntimeError("Upload cancelled by user")
         
         chunk = self._file.read(chunk_size)
         if chunk:

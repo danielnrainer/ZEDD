@@ -167,18 +167,24 @@ class UploadManager(UploadService):
                         publish: bool,
                         progress_callback: Optional[ProgressCallback],
                         status_callback: Optional[StatusCallback]) -> Dict[str, Any]:
-        """Perform the actual upload workflow"""
+        """Perform the actual upload workflow (supports multiple files separated by semicolons)"""
         
-        # Step 1: Validate file (5%)
-        self._update_status(status_callback, "Validating file...")
+        # Parse file paths (support multiple files separated by semicolon)
+        file_paths = [fp.strip() for fp in file_path.split(';') if fp.strip()]
+        if not file_paths:
+            raise UploadError("No valid file paths provided")
+        
+        # Step 1: Validate files (5%)
+        self._update_status(status_callback, f"Validating {len(file_paths)} file(s)...")
         self._update_progress(progress_callback, 5)
         
         if self._cancel_requested:
             return self._handle_cancellation()
         
-        file_valid, file_error = self.file_validator.validate(file_path)
-        if not file_valid:
-            raise UploadError(f"File validation failed: {file_error}")
+        for fp in file_paths:
+            file_valid, file_error = self.file_validator.validate(fp)
+            if not file_valid:
+                raise UploadError(f"File validation failed for '{Path(fp).name}': {file_error}")
         
         # Step 2: Validate metadata (10%)
         self._update_status(status_callback, "Validating metadata...")
@@ -208,25 +214,37 @@ class UploadManager(UploadService):
         with self._lock:
             self._current_deposition_id = deposition_id
         
-        # Step 4: Upload file (20-85%)
+        # Step 4: Upload files (20-85%)
         with self._lock:
             self._status = UploadStatus.UPLOADING
         
-        self._update_status(status_callback, "Uploading file...")
+        total_files = len(file_paths)
+        upload_progress_per_file = 65 / total_files  # 65% total for all file uploads
         
-        def upload_progress_callback(percentage: int):
-            """Map file upload progress to overall progress (20-85%)"""
+        for file_idx, fp in enumerate(file_paths):
+            filename = Path(fp).name
+            self._update_status(status_callback, f"Uploading file {file_idx + 1}/{total_files}: {filename}...")
+            
+            def file_upload_progress_callback(percentage: int):
+                """Map individual file upload progress to overall progress"""
+                if self._cancel_requested:
+                    return
+                # Calculate overall progress for this file
+                base_progress = 20 + int(file_idx * upload_progress_per_file)
+                file_progress = int((percentage * upload_progress_per_file) / 100)
+                overall_progress = base_progress + file_progress
+                self._update_progress(progress_callback, overall_progress)
+            
+            def cancel_checker() -> bool:
+                """Check if upload has been cancelled"""
+                return self._cancel_requested
+            
             if self._cancel_requested:
-                return
-            overall_progress = 20 + int((percentage * 65) / 100)
-            self._update_progress(progress_callback, overall_progress)
-        
-        if self._cancel_requested:
-            return self._handle_cancellation()
-        
-        file_result = self.repository_api.upload_file(
-            deposition_id, file_path, upload_progress_callback
-        )
+                return self._handle_cancellation()
+            
+            file_result = self.repository_api.upload_file(
+                deposition_id, fp, file_upload_progress_callback, cancel_checker
+            )
         
         # Step 5: Publish if requested (85-100%)
         if publish:
@@ -242,11 +260,13 @@ class UploadManager(UploadService):
             result = self.repository_api.publish_deposition(deposition_id)
             
             self._update_progress(progress_callback, 100)
-            self._update_status(status_callback, "Upload completed and published!")
+            files_msg = f"{len(file_paths)} file(s)" if len(file_paths) > 1 else "file"
+            self._update_status(status_callback, f"Upload of {files_msg} completed and published!")
         else:
             result = deposition
             self._update_progress(progress_callback, 100)
-            self._update_status(status_callback, "Upload completed (draft)!")
+            files_msg = f"{len(file_paths)} file(s)" if len(file_paths) > 1 else "file"
+            self._update_status(status_callback, f"Upload of {files_msg} completed (draft)!")
         
         # Mark as completed
         with self._lock:

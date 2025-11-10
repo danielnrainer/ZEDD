@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QFormLayout, QGroupBox, QLineEdit, QTextEdit, QTextBrowser, QComboBox, 
     QPushButton, QFileDialog, QProgressBar, QLabel, QMessageBox,
-    QTabWidget, QCheckBox, QDateEdit, QScrollArea, QCompleter
+    QTabWidget, QCheckBox, QDateEdit, QScrollArea, QCompleter, QApplication
 )
 from PyQt6.QtCore import QSettings, QDate, Qt, QStringListModel
 import os
@@ -459,11 +459,13 @@ class ZenodoUploaderApp(QMainWindow):
             depositions = api.list_depositions()
             QMessageBox.information(self, "Success", "Connection to Zenodo API successful!")
             self.upload_button.setEnabled(True)
+            self.validate_zenodo_button.setEnabled(True)  # Enable Zenodo test button
             self.update_connection_status(True, "Connected")
             
         except Exception as e:
             QMessageBox.critical(self, "Connection Failed", f"Failed to connect to Zenodo API:\n{str(e)}")
             self.upload_button.setEnabled(False)
+            self.validate_zenodo_button.setEnabled(False)  # Disable Zenodo test button
             self.update_connection_status(False, f"Connection failed: {str(e)[:30]}...")
     
     def update_connection_status(self, connected: bool, message: str = ""):
@@ -876,13 +878,14 @@ class ZenodoUploaderApp(QMainWindow):
             pass
     
     def browse_file(self):
-        """Browse for a file to upload"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Data File", "", 
+        """Browse for files to upload (supports multiple selection)"""
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Data File(s)", "", 
             "ZIP files (*.zip);;All files (*.*)"
         )
-        if file_path:
-            self.file_path_edit.setText(file_path)
+        if file_paths:
+            # Display one file per line for better readability
+            self.file_path_edit.setPlainText("\n".join(file_paths))
     
     def create_zip_from_folder(self):
         """Create a ZIP file from a selected folder"""
@@ -902,7 +905,7 @@ class ZenodoUploaderApp(QMainWindow):
         
         try:
             zip_path = create_zip_from_folder(folder_path, zip_path)
-            self.file_path_edit.setText(zip_path)
+            self.file_path_edit.setPlainText(zip_path)
             QMessageBox.information(self, "Success", f"ZIP file created successfully:\n{zip_path}")
             
         except Exception as e:
@@ -940,6 +943,13 @@ class ZenodoUploaderApp(QMainWindow):
                     type=contributor_data.get("type")
                 ))
         
+        # Collect communities
+        communities = []
+        for community_widget in self.communities_list:
+            community_id = community_widget.text().strip()
+            if community_id:
+                communities.append({"identifier": community_id})
+        
         # Create metadata object
         metadata = ZenodoMetadata(
             title=self.title_edit.text().strip(),
@@ -950,6 +960,7 @@ class ZenodoUploaderApp(QMainWindow):
             access_right=self.access_right_combo.currentText(),
             license=self.license_combo.currentData(),
             keywords=[kw.strip() for kw in self.keywords_edit.text().split(",") if kw.strip()],
+            communities=communities,
             publication_date=self.publication_date_edit.date().toString("yyyy-MM-dd"),
             notes=self.notes_edit.toPlainText().strip() if self.notes_edit.toPlainText().strip() else None,
             ed_parameters=ed_params
@@ -988,24 +999,78 @@ class ZenodoUploaderApp(QMainWindow):
         
         return metadata.to_dict()
     
-    def validate_metadata(self):
-        """Validate the entered metadata"""
+    def validate_metadata_local(self):
+        """Validate metadata locally without contacting Zenodo"""
         try:
             metadata = self.get_metadata()
             validator = self.service_factory.get_metadata_validator()
             
-            if not validator.validate(metadata):
-                errors = validator.get_errors()
+            # Local validation only
+            is_valid, errors = validator.validate(metadata)
+            
+            if not is_valid:
                 error_msg = "\n".join([f"• {error}" for error in errors])
-                QMessageBox.warning(self, "Validation Error", f"Validation failed:\n\n{error_msg}")
+                QMessageBox.warning(self, "Local Validation Failed", 
+                    f"Validation errors found:\n\n{error_msg}")
                 return False
             
-            QMessageBox.information(self, "Validation Success", "Metadata validation passed!")
+            QMessageBox.information(self, "Local Validation Passed", 
+                "✅ Local metadata validation passed!\n\n"
+                "All required fields are present and properly formatted.")
             return True
             
         except Exception as e:
-            QMessageBox.critical(self, "Validation Error", f"Error validating metadata:\n{str(e)}")
+            QMessageBox.critical(self, "Validation Error", 
+                f"Error validating metadata:\n{str(e)}")
             return False
+    
+    def validate_metadata_zenodo(self):
+        """Test metadata against Zenodo API"""
+        try:
+            # First do local validation
+            metadata = self.get_metadata()
+            validator = self.service_factory.get_metadata_validator()
+            
+            is_valid, errors = validator.validate(metadata)
+            if not is_valid:
+                error_msg = "\n".join([f"• {error}" for error in errors])
+                QMessageBox.warning(self, "Local Validation Failed", 
+                    f"Local validation must pass first:\n\n{error_msg}")
+                return False
+            
+            # Check API is configured
+            if not self.service_factory.has_api_services():
+                QMessageBox.warning(self, "API Not Configured", 
+                    "Please configure and test the API connection in the Configuration tab first.")
+                return False
+            
+            # Test against Zenodo API
+            self.status_label.setText("Testing metadata with Zenodo API...")
+            QApplication.processEvents()
+            
+            api = self.service_factory.get_repository_api()
+            success, message, deposition_id = api.test_metadata(metadata)
+            
+            self.status_label.setText("Ready")
+            
+            if success:
+                QMessageBox.information(self, "Zenodo Test Passed", 
+                    f"✅ Success!\n\n{message}")
+                return True
+            else:
+                QMessageBox.warning(self, "Zenodo Test Failed", 
+                    f"{message}")
+                return False
+            
+        except Exception as e:
+            self.status_label.setText("Ready")
+            QMessageBox.critical(self, "Test Error", 
+                f"Error testing with Zenodo:\n{str(e)}")
+            return False
+    
+    def validate_metadata(self):
+        """Legacy method - now just calls local validation"""
+        return self.validate_metadata_local()
     
     def handle_upload_button_click(self):
         """Handle upload button click - either start upload or cancel"""
@@ -1022,7 +1087,7 @@ class ZenodoUploaderApp(QMainWindow):
             QMessageBox.warning(self, "Error", "Please configure and test the API connection first.")
             return
         
-        if not self.file_path_edit.text():
+        if not self.file_path_edit.toPlainText().strip():
             QMessageBox.warning(self, "Error", "Please select a file to upload.")
             return
         
@@ -1038,10 +1103,15 @@ class ZenodoUploaderApp(QMainWindow):
         metadata = self.get_metadata()
         upload_service = self.service_factory.get_upload_service()
         
+        # Get file paths - now separated by newlines instead of semicolons
+        file_paths_text = self.file_path_edit.toPlainText().strip()
+        # Convert newlines to semicolons for backward compatibility with upload service
+        file_paths_normalized = ";".join([line.strip() for line in file_paths_text.split("\n") if line.strip()])
+        
         self.upload_worker = ModularUploadWorker(
             upload_service,
             metadata,
-            self.file_path_edit.text(),
+            file_paths_normalized,
             self.publish_checkbox.isChecked()
         )
         
@@ -1055,7 +1125,8 @@ class ZenodoUploaderApp(QMainWindow):
         # Update UI for upload state
         self.upload_button.setText("Cancel Upload")
         self.upload_button.setEnabled(True)  # Keep enabled for cancelling
-        self.validate_button.setEnabled(False)
+        self.validate_local_button.setEnabled(False)
+        self.validate_zenodo_button.setEnabled(False)
         self.progress_bar.setValue(0)
         self.results_text.clear()
         
@@ -1078,7 +1149,9 @@ class ZenodoUploaderApp(QMainWindow):
         # Reset UI state
         self.upload_button.setText("Start Upload")
         self.upload_button.setEnabled(True)
-        self.validate_button.setEnabled(True)
+        self.validate_local_button.setEnabled(True)
+        # Re-enable Zenodo test button only if API is configured
+        self.validate_zenodo_button.setEnabled(self.service_factory.has_api_services())
         
         # Clean up worker reference
         if hasattr(self, 'upload_worker'):
@@ -1586,8 +1659,10 @@ class ZenodoUploaderApp(QMainWindow):
         file_layout = QVBoxLayout()
         
         file_select_layout = QHBoxLayout()
-        self.file_path_edit = QLineEdit()
-        self.file_path_edit.setPlaceholderText("Select your .zip file containing the electron diffraction data")
+        self.file_path_edit = QTextEdit()
+        self.file_path_edit.setPlaceholderText("Select your file(s) - one per line")
+        self.file_path_edit.setMaximumHeight(80)  # Show ~3-4 lines
+        self.file_path_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)  # Don't wrap long paths
         
         self.browse_button = QPushButton("Browse...")
         self.browse_button.clicked.connect(self.browse_file)
@@ -1636,10 +1711,18 @@ class ZenodoUploaderApp(QMainWindow):
         self.connection_status_label.setStyleSheet("color: red; font-weight: bold; margin-left: 5px;")
         self.connection_status_label.setToolTip("API connection status. Test connection in Configuration tab to enable upload.")
         
-        self.validate_button = QPushButton("Validate Metadata")
-        self.validate_button.clicked.connect(self.validate_metadata)
+        # Validation buttons
+        self.validate_local_button = QPushButton("Validate Locally")
+        self.validate_local_button.clicked.connect(self.validate_metadata_local)
+        self.validate_local_button.setToolTip("Quick validation of metadata format and required fields")
         
-        controls_layout.addWidget(self.validate_button)
+        self.validate_zenodo_button = QPushButton("Test with Zenodo")
+        self.validate_zenodo_button.clicked.connect(self.validate_metadata_zenodo)
+        self.validate_zenodo_button.setToolTip("Test if Zenodo API accepts this metadata (requires API connection)")
+        self.validate_zenodo_button.setEnabled(False)  # Disabled until API is configured
+        
+        controls_layout.addWidget(self.validate_local_button)
+        controls_layout.addWidget(self.validate_zenodo_button)
         controls_layout.addWidget(self.upload_button)
         controls_layout.addWidget(self.connection_status_label)
         controls_layout.addStretch()

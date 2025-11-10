@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import List, Optional
 
 def create_zip_from_folder(folder_path: str, zip_path: Optional[str] = None) -> str:
-    """Create a ZIP file from a folder
+    """Create a ZIP file from a folder using LZMA compression
+    
+    LZMA compression provides better compression ratios than DEFLATE,
+    which is beneficial for large scientific datasets.
     
     Args:
         folder_path: Path to the folder to zip
@@ -22,7 +25,7 @@ def create_zip_from_folder(folder_path: str, zip_path: Optional[str] = None) -> 
     if not zip_path:
         zip_path = str(folder.parent / f"{folder.name}.zip")
     
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_LZMA) as zipf:
         for file_path in folder.rglob('*'):
             if file_path.is_file():
                 arcname = file_path.relative_to(folder.parent)
