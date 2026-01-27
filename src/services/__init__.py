@@ -10,6 +10,9 @@ from .metadata import Creator, Contributor, EDParameters, ZenodoMetadata, Fundin
 from .file_packing import create_zip_from_folder, compute_checksums
 from .templates import MetadataTemplate, TemplateService, TemplateCreator, TemplateContributor, TemplateFunding, TemplateCommunity, TemplateEDParameters
 
+# CIF file parsing
+from .cif_parser import CIFParser, CIFData, extract_parameters_from_cif, parse_multiple_cifs, CIF_TO_PARAMETER_MAPPING
+
 # File and metadata validation
 from .validation import ZenodoFileValidator, BatchFileValidator
 from .metadata_validation import ZenodoMetadataValidator
@@ -35,5 +38,10 @@ __all__ = [
     'UploadStatus',
     'ServiceFactory',
     'get_service_factory',
-    'initialize_services'
+    'initialize_services',
+    'CIFParser',
+    'CIFData',
+    'extract_parameters_from_cif',
+    'parse_multiple_cifs',
+    'CIF_TO_PARAMETER_MAPPING'
 ]

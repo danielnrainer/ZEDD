@@ -28,38 +28,39 @@
         }
     ],
     "ed_parameters": {
+        "_comment": "Parameters are grouped by section. Each entry is [value, section_name].",
         "parameters": {
-            "Collection site": "University of Southampton, NCS/NEDF",
-            "Sample label(s)": "",
-            "Crystal structure deposit": "CSD - to be deposited",
+            "Collection site": ["University of Southampton, NCS/NEDF", "General"],
+            "Sample label(s)": ["", "General"],
+            "Crystal structure deposit": ["CSD - to be deposited", "General"],
             
-            "Instrument": "Rigaku XtaLAB Synergy-ED, electron diffractometer",
-            "Radiation source": "LaB6 filament",
-            "Accelerating voltage [kV]": "200",
-            "Wavelength [Å]": "0.0251",
-            "Probe type": "Parallel beam (SAED)",
-            "Beam convergence": "Parallel beam",
-            "Detector": "Rigaku HyPix-ED, hybrid pixel array detector",
-            "Number of pixels in the image": "775 × 385",
-            "Pixel size [µm]": "100",
-            "Hardware binning": "1",
+            "Instrument": ["Rigaku XtaLAB Synergy-ED, electron diffractometer", "Instrumental"],
+            "Radiation source": ["LaB6 filament", "Instrumental"],
+            "Accelerating voltage [kV]": ["200", "Instrumental"],
+            "Wavelength [Å]": ["0.0251", "Instrumental"],
+            "Probe type": ["Parallel beam (SAED)", "Instrumental"],
+            "Beam convergence": ["Parallel beam", "Instrumental"],
+            "Detector": ["Rigaku HyPix-ED, hybrid pixel array detector", "Instrumental"],
+            "Number of pixels": ["775 × 385", "Instrumental"],
+            "Pixel size [µm]": ["100", "Instrumental"],
+            "Hardware binning": ["1", "Instrumental"],
             
-            "Name": "example sample",
-            "Chemical composition": "C1 O1 H1",
-            "Sample source": "synthesis",
-            "Grid": "lacey carbon coated copper grid, 200 mesh (Agar Scientific, UK)",
-            "Sample preparation": "sample ground between glass slides, grid dabbed, cryo transfer @ 175 K",
-            "Sample holder": "GATAN Elsa cryo-transfer holder 698",
+            "Name": ["example sample", "Sample description"],
+            "Chemical composition": ["C1 O1 H1", "Sample description"],
+            "Sample source": ["synthesis", "Sample description"],
+            "Grid": ["lacey carbon coated copper grid, 200 mesh (Agar Scientific, UK)", "Sample description"],
+            "Sample preparation": ["sample ground between glass slides, grid dabbed, cryo transfer @ 175 K", "Sample description"],
+            "Sample holder": ["GATAN Elsa cryo-transfer holder 698", "Sample description"],
             
-            "Data type": "electron diffraction data - 3D ED",
-            "Data collection method": "continuous rotation - cRED",
-            "Collection temperature [K]": "175",
+            "Data type": ["electron diffraction data - 3D ED", "Experimental"],
+            "Data collection method": ["continuous rotation - cRED", "Experimental"],
+            "Collection temperature [K]": ["175", "Experimental"],
 
-            "Software for data collection": "CrysAlisPro 1.171.44.100a",
-            "Software for data processing": "CrysAlisPro 1.171.44.101a",
-            "Image folders": "./frames/xxx.rodhypix\n./frames/xxx.tiff",
-            "Image format": ".rodhypix\n.tiff",
-            "Additional files": "none"
+            "Software for data collection": ["CrysAlisPro 1.171.44.100a", "Software & Files"],
+            "Software for data processing": ["CrysAlisPro 1.171.44.101a", "Software & Files"],
+            "Image folders": ["./frames/xxx.rodhypix\n./frames/xxx.tiff", "Software & Files"],
+            "Image format": [".rodhypix\n.tiff", "Software & Files"],
+            "Additional files": ["none", "Software & Files"]
         }
     }
 }

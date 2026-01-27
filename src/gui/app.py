@@ -19,7 +19,7 @@ import json
 from .widgets import QCollapsibleBox, CreatorWidget, ContributorWidget
 from .upload_worker import ModularUploadWorker
 from .template_loader import populate_gui_from_template
-from .measurement_params import MeasurementParametersWidget
+from .multi_column_params import MultiColumnParametersWidget
 from ..services import get_service_factory
 from ..services.metadata import Creator, Contributor, EDParameters, ZenodoMetadata, Funding
 from ..services.file_packing import create_zip_from_folder
@@ -354,7 +354,7 @@ class ZenodoUploaderApp(QMainWindow):
             "Instrument": "instrument", "Detector": "detector", 
             "Collection Mode": "collection_mode", "Voltage": "voltage",
             "Wavelength": "wavelength", "Exposure Time": "exposure_time",
-            "Rotation Range": "rotation_range", "Temperature": "temperature",
+            "Rotation Range": "rotation_range", "Collection temperature": "temperature",
             "Crystal Size": "crystal_size", "Sample Composition": "sample_composition"
         }
         for display_key, setting_key in param_mapping.items():
@@ -1630,11 +1630,11 @@ class ZenodoUploaderApp(QMainWindow):
         # Add default MicroED community (don't attempt API lookup during startup)
         self.add_community("microed", lookup=False)
         
-        # Experimental Parameters (dynamic)
+        # Experimental Parameters (dynamic with CIF import support)
         experimental_params_box = QCollapsibleBox("Experimental Parameters")
         experimental_params_layout = QVBoxLayout()
         
-        self.measurement_params_widget = MeasurementParametersWidget()
+        self.measurement_params_widget = MultiColumnParametersWidget()
         experimental_params_layout.addWidget(self.measurement_params_widget)
         
         experimental_params_box.setContentLayout(experimental_params_layout)

@@ -190,7 +190,7 @@ class MeasurementParametersWidget(QWidget):
             ("Detector", "", "Instrumental"),
             ("Accelerating Voltage", "", "Instrumental"),
             ("Wavelength", "", "Instrumental"),
-            ("Temperature", "", "Experimental"),
+            ("Collection temperature", "", "Experimental"),
             ("Sample Composition", "", "Sample description")
         ]
         

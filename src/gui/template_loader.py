@@ -47,9 +47,14 @@ def populate_gui_from_template(gui_app, template: MetadataTemplate) -> None:
         
         # Measurement Parameters (dynamic)
         gui_app.measurement_params_widget.clear_parameters()
-        for key, value in template.ed_parameters.parameters.items():
-            # Smart section assignment based on parameter names
-            section = _get_smart_section(key)
+        for key, param_data in template.ed_parameters.parameters.items():
+            # Handle both new [value, section] format and old string-only format
+            if isinstance(param_data, list) and len(param_data) >= 2:
+                value, section = param_data[0], param_data[1]
+            else:
+                # Old format: just a string value, use smart section assignment
+                value = param_data if param_data else ""
+                section = _get_smart_section(key)
             gui_app.measurement_params_widget.add_parameter(key, value, section)
         
         # Creators - create widgets without triggering add/remove logic

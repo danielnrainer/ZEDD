@@ -6,10 +6,14 @@ File upload logic is extracted to a separate service.
 """
 
 import requests
+import time
+import logging
 from typing import Dict, Any, Optional, List, Callable
 from pathlib import Path
 
 from ..core.interfaces import RepositoryAPI, ProgressCallback, APIError
+
+logger = logging.getLogger(__name__)
 
 
 class ZenodoRepositoryAPI(RepositoryAPI):
@@ -135,10 +139,11 @@ class ZenodoRepositoryAPI(RepositoryAPI):
         Uses the bucket API as recommended in https://github.com/zenodo/zenodo/issues/833
         This allows uploading files larger than 100MB by streaming binary content.
         
-        Implementation follows the pattern from @jakelever and @lnielsen:
+        Implementation follows the pattern from jhpoelen/zenodo-upload:
         1. Get bucket URL from deposition
         2. PUT file directly to bucket/<filename> with binary stream
         3. Use Authorization Bearer header instead of query params
+        4. Retry 5 times with 5 second delays (like curl --retry 5 --retry-delay 5)
         
         Args:
             deposition_id: ID of the deposition
@@ -146,6 +151,11 @@ class ZenodoRepositoryAPI(RepositoryAPI):
             progress_callback: Optional callback for upload progress
             cancel_checker: Optional function that returns True if upload should be cancelled
         """
+        import urllib.parse
+        
+        max_retries = 5  # Match curl default
+        retry_delay = 5  # seconds, match curl default
+        
         try:
             # Step 1: Get the deposition to extract the bucket URL
             deposition_url = f"{self.base_url}/deposit/depositions/{deposition_id}"
@@ -154,9 +164,11 @@ class ZenodoRepositoryAPI(RepositoryAPI):
             
             bucket_url = response.json()["links"]["bucket"]
             filename = Path(file_path).name
+            # URL-encode filename to handle spaces and special characters
+            encoded_filename = urllib.parse.quote(filename, safe='')
             
             # Step 2: Upload directly to bucket using PUT
-            upload_url = f"{bucket_url}/{filename}"
+            upload_url = f"{bucket_url}/{encoded_filename}"
             
             # Set proper headers as per Zenodo bucket API requirements
             # Using Authorization header instead of query params for better compatibility
@@ -166,23 +178,68 @@ class ZenodoRepositoryAPI(RepositoryAPI):
                 "Authorization": f"Bearer {self.access_token}"
             }
             
-            # Step 3: Stream the file content using PUT request
-            with ProgressFileWrapper(file_path, progress_callback, cancel_checker) as pf:
-                # Note: Don't use session here to avoid adding access_token as query param
-                # The bucket API works best with Authorization header only
-                response = requests.put(
-                    upload_url, 
-                    data=pf,
-                    headers=headers,
-                    timeout=(30, 600)  # Longer timeout for large files
-                )
+            # Step 3: Stream the file content using PUT request with retry logic
+            # Follows curl's retry pattern: --retry 5 --retry-delay 5
+            last_error = None
+            for attempt in range(max_retries):
+                try:
+                    if attempt > 0:
+                        logger.info(f"Retry attempt {attempt + 1}/{max_retries} for file upload after {retry_delay}s delay...")
+                        if progress_callback:
+                            # Reset progress for retry
+                            progress_callback(0)
+                        time.sleep(retry_delay)  # Fixed delay like curl
+                    
+                    with ProgressFileWrapper(file_path, progress_callback, cancel_checker) as pf:
+                        # Note: Don't use session here to avoid adding access_token as query param
+                        # The bucket API works best with Authorization header only
+                        response = requests.put(
+                            upload_url, 
+                            data=pf,
+                            headers=headers,
+                            timeout=(60, 1800)  # (connection: 60s, read: 30 minutes) for large files
+                        )
+                    
+                    response.raise_for_status()
+                    return response.json()
+                    
+                except (requests.exceptions.ConnectionError, 
+                        requests.exceptions.ChunkedEncodingError,
+                        ConnectionAbortedError,
+                        ConnectionResetError,
+                        BrokenPipeError,
+                        OSError) as e:
+                    # OSError covers low-level socket errors like WinError 10053
+                    last_error = e
+                    logger.warning(f"Connection error during upload (attempt {attempt + 1}/{max_retries}): {e}")
+                    if attempt == max_retries - 1:
+                        raise APIError(
+                            f"Upload failed after {max_retries} attempts due to connection errors. "
+                            f"Please check your network connection and try again. "
+                            f"If the problem persists, try uploading a smaller file or check your firewall settings. "
+                            f"Last error: {str(e)}"
+                        )
+                    continue
+                    
+                except requests.exceptions.Timeout as e:
+                    last_error = e
+                    logger.warning(f"Timeout during upload (attempt {attempt + 1}/{max_retries}): {e}")
+                    if attempt == max_retries - 1:
+                        raise APIError(
+                            f"Upload timed out after {max_retries} attempts. "
+                            f"Large files may require a more stable connection. "
+                            f"Please check your network and try again."
+                        )
+                    continue
             
-            response.raise_for_status()
-            return response.json()
+            # Should not reach here, but just in case
+            raise APIError(f"Upload failed: {str(last_error)}")
             
         except RuntimeError as e:
             if "cancelled" in str(e).lower():
                 raise APIError("Upload cancelled by user")
+            raise
+        except APIError:
             raise
         except requests.exceptions.Timeout:
             raise APIError("Upload timed out. Please check your connection and try again.")
@@ -371,7 +428,7 @@ class ZenodoRepositoryAPI(RepositoryAPI):
 
 
 class ProgressFileWrapper:
-    """File wrapper that reports upload progress"""
+    """File wrapper that reports upload progress with retry support"""
     
     def __init__(self, file_path: str, progress_callback: Optional[ProgressCallback] = None,
                  cancel_checker: Optional[callable] = None):
@@ -390,8 +447,11 @@ class ProgressFileWrapper:
         self.total_size = Path(file_path).stat().st_size
         self._file = None
     
-    def read(self, chunk_size: int = 8192) -> bytes:
-        """Read chunk and update progress"""
+    def read(self, chunk_size: int = 65536) -> bytes:
+        """Read chunk and update progress
+        
+        Uses larger chunk size (64KB) for better performance with large files.
+        """
         if self._file is None:
             raise RuntimeError("File not opened")
         
@@ -411,6 +471,26 @@ class ProgressFileWrapper:
                 self.progress_callback(percentage)
         
         return chunk
+    
+    def seek(self, offset: int, whence: int = 0) -> int:
+        """Support seeking for retry attempts"""
+        if self._file is None:
+            raise RuntimeError("File not opened")
+        result = self._file.seek(offset, whence)
+        if offset == 0 and whence == 0:
+            # Reset uploaded counter when seeking to beginning
+            self.uploaded = 0
+        return result
+    
+    def tell(self) -> int:
+        """Return current file position"""
+        if self._file is None:
+            raise RuntimeError("File not opened")
+        return self._file.tell()
+    
+    def __len__(self) -> int:
+        """Return total file size for Content-Length header"""
+        return self.total_size
     
     def __enter__(self):
         """Context manager entry"""

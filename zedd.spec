@@ -17,9 +17,11 @@ project_root = Path('.')
 
 # Data files to include
 datas = [
-    # Include templates in the templatesdirectory
+    # Include templates in the templates directory
     ('templates\\app_config.json', 'templates'),
-    ('templates\\parameter_template.json', 'templates')
+    ('templates\\parameter_template.json', 'templates'),
+    ('templates\\cif_mappings.json', 'templates'),
+    ('templates\\3DED_Southampton.json', 'templates'),
 ]
 
 # Hidden imports that PyInstaller might miss
@@ -40,6 +42,7 @@ hiddenimports = [
     'src.gui.upload_worker',
     'src.gui.template_loader',
     'src.gui.measurement_params',
+    'src.gui.multi_column_params',
     'src.services.metadata',
     'src.services.upload',
     'src.services.validation',
@@ -48,6 +51,7 @@ hiddenimports = [
     'src.services.factory',
     'src.services.templates',
     'src.services.file_packing',
+    'src.services.cif_parser',
     'src.api.zenodo_api',
     'src.core.interfaces',
     'src.cli',
