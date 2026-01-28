@@ -75,7 +75,7 @@ python -m src.cli -z YOUR_TOKEN -T "Dataset Title" -C "Last, First" -A "Institut
 The application uses template files in the `templates/` directory:
 - `app_config.json` - Application settings
 - `cif_mappings.json` - CIF data name to parameter mappings (supports both CIF1 and CIF2 notation)
-- `3DED_Southampton.json` - Example metadata template for 3D electron diffraction
+- `parameter_template.json` - Example metadata template for 3D electron diffraction
 
 ## 📁 CIF Import Feature
 
