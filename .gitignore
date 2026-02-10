@@ -7,13 +7,14 @@ __pycache__/
 # PyInstaller build files
 build/
 dist/
-.github/
-
-# Temporary files
-build/
-dist/
 
 # VS Code settings
 .vscode/
 *.code-workspace
+
+
+# test files
 templates/3DED_Southampton.json
+
+# GitHub workflows
+.github/

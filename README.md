@@ -25,6 +25,16 @@ Be advised that this software is in constant development and might therefore con
 - Python 3.8+
 - PyQt6 for GUI functionality
 
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/danielnrainer/ZEDD.git
+cd ZEDD
+
+# Install dependencies
+pip install -r requirements.txt
+```
 
 ### Usage
 
@@ -72,10 +82,84 @@ python -m src.cli -z YOUR_TOKEN -T "Dataset Title" -C "Last, First" -A "Institut
 
 ## 🔧 Configuration
 
-The application uses template files in the `templates/` directory:
-- `app_config.json` - Application settings
-- `cif_mappings.json` - CIF data name to parameter mappings (supports both CIF1 and CIF2 notation)
-- `parameter_template.json` - Example metadata template for 3D electron diffraction
+### User Data Directory
+
+ZEDD stores all user configuration in a platform-specific application data directory:
+
+| Platform | Location |
+|----------|----------|
+| Windows  | `%APPDATA%\ZEDD\` |
+| macOS    | `~/Library/Application Support/ZEDD/` |
+| Linux    | `~/.config/ZEDD/` |
+
+**Configuration Files:**
+```
+ZEDD/
+├── settings.json           # GUI state, last values, preferences
+├── tokens.json             # API tokens (sandbox & production)
+├── user_template.json      # Custom metadata template (optional)
+└── cif_mappings.json       # Custom CIF mappings (optional)
+```
+
+**Customization:**
+- **`tokens.json`**: Store your Zenodo API tokens (both sandbox and production)
+- **`user_template.json`**: Create your own default metadata template (overrides bundled templates)
+- **`cif_mappings.json`**: Customize CIF data name mappings (extends/overrides bundled mappings)
+- All files use JSON format for easy editing
+
+Settings persist across sessions and software updates.
+
+### Bundled Template Files
+
+The application includes default templates in the `templates/` directory:
+- `app_config.json` - Application configuration
+- `cif_mappings.json` - Default CIF data name mappings (supports CIF1 and CIF2)
+- `parameter_template.json` - Default parameter template
+- `3DED_Southampton.json` - Example 3D electron diffraction template
+
+User config files (if present) take precedence over bundled templates.
+
+### Example User Config Files
+
+**`tokens.json` Example:**
+```json
+{
+  "sandbox": "your-sandbox-token-here",
+  "production": "your-production-token-here"
+}
+```
+
+Store your Zenodo API tokens here to avoid entering them manually. The app automatically loads the appropriate token based on the sandbox checkbox. Access via **File → Open Config Directory** in the app.
+
+**`user_template.json` Example:**
+```json
+{
+  "title": "My Default Dataset",
+  "description": "Standard dataset from my lab",
+  "upload_type": "dataset",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Smith, John",
+      "affiliation": "My University",
+      "orcid": "0000-0000-0000-0000"
+    }
+  ],
+  "keywords": ["electron diffraction", "crystallography"],
+  "notes": "Data collected using standard protocols"
+}
+```
+
+**`cif_mappings.json` Example:**
+```json
+{
+  "_custom_instrument_name": ["Instrument", "Instrumental"],
+  "_custom_detector_type": ["Detector", "Instrumental"],
+  "_my_lab_wavelength": ["Wavelength (Å)", "Instrumental"]
+}
+```
+
+Each entry maps a CIF data name to `[Display Name, Section]` where Section is one of: "General", "Instrumental", "Sample", "Experimental", or "Software".
 
 ## 📁 CIF Import Feature
 

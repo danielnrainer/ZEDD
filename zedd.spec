@@ -3,6 +3,20 @@
 """
 PyInstaller spec file for ZEDD GUI
 Usage: pyinstaller zedd.spec
+
+Cross-platform Configuration:
+- User config stored in OS-appropriate directories:
+  * Windows: %APPDATA%/ZEDD/
+  * macOS: ~/Library/Application Support/ZEDD/
+  * Linux: ~/.config/ZEDD/
+- Config files (settings.json, tokens.json) are NOT bundled with executable
+- Only template files are bundled for defaults
+
+Build Notes:
+- This spec file works on Windows, macOS, and Linux
+- On macOS, produces .app bundle
+- On Linux, produces standalone executable
+- User config directory is automatically created on first run
 """
 
 import os
@@ -18,10 +32,11 @@ project_root = Path('.')
 # Data files to include
 datas = [
     # Include templates in the templates directory
-    ('templates\\app_config.json', 'templates'),
-    ('templates\\parameter_template.json', 'templates'),
-    ('templates\\cif_mappings.json', 'templates'),
-    ('templates\\3DED_Southampton.json', 'templates'),
+    ('templates/app_config.json', 'templates'),
+    ('templates/parameter_template.json', 'templates'),
+    ('templates/cif_mappings.json', 'templates'),
+    ('templates/3DED_Southampton.json', 'templates'),
+    ('templates/tokens_example.json', 'templates'),
 ]
 
 # Hidden imports that PyInstaller might miss
@@ -47,7 +62,8 @@ hiddenimports = [
     'src.services.upload',
     'src.services.validation',
     'src.services.metadata_validation',
-    'src.services.settings',
+    'src.services.settings',  # Legacy module kept for interface compliance
+    'src.services.user_config',  # NEW: User configuration management
     'src.services.factory',
     'src.services.templates',
     'src.services.file_packing',

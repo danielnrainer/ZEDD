@@ -9,12 +9,12 @@ from typing import Optional
 
 from ..core.interfaces import (
     RepositoryAPI, FileValidator, MetadataValidator, 
-    SettingsManager, UploadService
+    UploadService
 )
 from ..api import ZenodoRepositoryAPI
 from ..services import (
     ZenodoFileValidator, ZenodoMetadataValidator,
-    QtSettingsManager, UploadManager, TemplateService
+    UploadManager, TemplateService
 )
 
 
@@ -40,7 +40,6 @@ class ServiceFactory:
             sandbox: Whether to use sandbox mode
         """
         # Core services
-        self._services['settings_manager'] = QtSettingsManager()
         self._services['file_validator'] = ZenodoFileValidator()
         self._services['metadata_validator'] = ZenodoMetadataValidator()
         self._services['template_service'] = TemplateService()
@@ -88,11 +87,6 @@ class ServiceFactory:
             # Remove API-dependent services if no token
             self._services.pop('repository_api', None)
             self._services.pop('upload_service', None)
-    
-    def get_settings_manager(self) -> SettingsManager:
-        """Get the settings manager service"""
-        self._ensure_initialized()
-        return self._services['settings_manager']
     
     def get_file_validator(self) -> FileValidator:
         """Get the file validator service"""

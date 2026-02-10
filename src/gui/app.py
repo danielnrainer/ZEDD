@@ -8,7 +8,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QFileDialog, QProgressBar, QLabel, QMessageBox,
     QTabWidget, QCheckBox, QDateEdit, QScrollArea, QCompleter, QApplication
 )
-from PyQt6.QtCore import QSettings, QDate, Qt, QStringListModel
+from PyQt6.QtGui import QAction
+from PyQt6.QtCore import QDate, Qt, QStringListModel
 import os
 import sys
 from pathlib import Path
@@ -23,10 +24,51 @@ from .multi_column_params import MultiColumnParametersWidget
 from ..services import get_service_factory
 from ..services.metadata import Creator, Contributor, EDParameters, ZenodoMetadata, Funding
 from ..services.file_packing import create_zip_from_folder
+from ..services.metadata_validation import ZenodoMetadataValidator
+from ..services.user_config import (
+    get_settings_file_path, load_settings, save_settings,
+    get_user_template_path, get_user_cif_mappings_path,
+    get_tokens_file_path, load_tokens, save_tokens,
+    open_user_config_directory
+)
 
 def is_frozen_executable():
     """Check if running as a PyInstaller executable"""
     return getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
+
+
+class SettingsCompat:
+    """Compatibility wrapper to make dict work like QSettings"""
+    def __init__(self, settings_dict):
+        self.data = settings_dict
+    
+    def value(self, key, default=None, type=None):
+        """Get value using QSettings-style key path"""
+        keys = key.split('/')
+        value = self.data
+        for k in keys:
+            if isinstance(value, dict):
+                value = value.get(k, {})
+            else:
+                return default if default is not None else ""
+        
+        if value == {}:
+            return default if default is not None else ""
+        
+        # Handle type conversion
+        if type is bool and isinstance(value, bool):
+            return value
+        return value if value != {} else (default if default is not None else "")
+    
+    def setValue(self, key, value):
+        """Set value using QSettings-style key path"""
+        keys = key.split('/')
+        current = self.data
+        for k in keys[:-1]:
+            if k not in current or not isinstance(current[k], dict):
+                current[k] = {}
+            current = current[k]
+        current[keys[-1]] = value
 
 
 class ZenodoUploaderApp(QMainWindow):
@@ -38,9 +80,11 @@ class ZenodoUploaderApp(QMainWindow):
         # Get the service factory
         self.service_factory = get_service_factory()
         
-        # Keep original QSettings for backward compatibility with GUI
-        # Use unique organization name to avoid sharing settings with development version
-        self.settings = QSettings("ZEDD", "ZenodoElectronDiffractionDepositor")
+        # Use JSON-based settings stored in OS-appropriate location
+        self.settings = load_settings()
+        
+        # Add compatibility methods for old QSettings-style code
+        self.settings_compat = SettingsCompat(self.settings)
         
         self.licenses = []
         # Lists to track dynamic widgets
@@ -60,12 +104,35 @@ class ZenodoUploaderApp(QMainWindow):
             sandbox = True
         else:
             # In development mode: use saved tokens
-            token = self.settings.value("api/token", "")
-            sandbox = self.settings.value("api/sandbox", True, type=bool)
+            token = self.settings.get("api", {}).get("token", "")
+            sandbox = self.settings.get("api", {}).get("sandbox", True)
             
         if token:
             self.service_factory.update_api_config(token, sandbox)
-            self.load_licenses()
+            # Defer license loading - only load when check_connection is clicked
+            # This significantly speeds up app startup
+            # self.load_licenses()
+    
+    def _get_setting(self, key_path: str, default=None):
+        """Helper to get nested setting value using dot notation"""
+        keys = key_path.split('/')
+        value = self.settings
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key, {} if key != keys[-1] else default)
+            else:
+                return default
+        return value if value != {} else default
+    
+    def _set_setting(self, key_path: str, value):
+        """Helper to set nested setting value using dot notation"""
+        keys = key_path.split('/')
+        current = self.settings
+        for key in keys[:-1]:
+            if key not in current or not isinstance(current[key], dict):
+                current[key] = {}
+            current = current[key]
+        current[keys[-1]] = value
     
     def init_ui(self):
         # Set title with indicator if running as executable
@@ -74,6 +141,25 @@ class ZenodoUploaderApp(QMainWindow):
             title += " (Portable)"
         self.setWindowTitle(title)
         self.setGeometry(100, 100, 1000, 800)
+        
+        # Create menu bar
+        menubar = self.menuBar()
+        
+        # File menu
+        file_menu = menubar.addMenu('&File')
+        
+        # Open config directory action
+        open_config_action = QAction('Open Config Directory...', self)
+        open_config_action.triggered.connect(self.open_config_directory)
+        file_menu.addAction(open_config_action)
+        
+        file_menu.addSeparator()
+        
+        # Exit action
+        exit_action = QAction('E&xit', self)
+        exit_action.setShortcut('Ctrl+Q')
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
         
         # Create central widget and main layout
         central_widget = QWidget()
@@ -130,15 +216,11 @@ class ZenodoUploaderApp(QMainWindow):
         
     def load_settings(self):
         """Load saved settings"""
-        # Load API configuration - but don't load token in distributed executables
-        if is_frozen_executable():
-            # In distributed executable: don't load sensitive data like tokens
-            self.token_edit.setText("")
-            self.sandbox_checkbox.setChecked(True)  # Default to sandbox for safety
-        else:
-            # In development: load all settings normally
-            self.token_edit.setText(self.settings.value("api/token", ""))
-            self.sandbox_checkbox.setChecked(self.settings.value("api/sandbox", True, type=bool))
+        # Load API tokens from tokens.json
+        self.load_tokens_from_file()
+        
+        # Load sandbox preference
+        self.sandbox_checkbox.setChecked(self.settings_compat.value("api/sandbox", True, type=bool))
         
         # Try to load default values from templates
         # Always prioritize parameter_template.json for consistent best practices
@@ -198,16 +280,16 @@ class ZenodoUploaderApp(QMainWindow):
             
             # Then override with saved settings where they exist
             # Only override fields that have been explicitly saved by user
-            saved_title = self.settings.value("metadata/title", "")
+            saved_title = self.settings_compat.value("metadata/title", "")
             if saved_title and saved_title != template_data.get("title", ""):
                 self.title_edit.setText(saved_title)
                 
-            saved_desc = self.settings.value("metadata/description", "")
+            saved_desc = self.settings_compat.value("metadata/description", "")
             if saved_desc and saved_desc != template_data.get("description", ""):
                 self.description_edit.setPlainText(saved_desc)
                 
             # Override other key fields if explicitly saved
-            saved_keywords = self.settings.value("metadata/keywords", "")
+            saved_keywords = self.settings_compat.value("metadata/keywords", "")
             if saved_keywords and saved_keywords != template_data.get("keywords", []):
                 if isinstance(saved_keywords, list):
                     self.keywords_edit.setText(", ".join(saved_keywords))
@@ -222,7 +304,7 @@ class ZenodoUploaderApp(QMainWindow):
     def _load_individual_settings(self, default_values: dict):
         """Load individual saved settings or template defaults (used in development mode)"""
         # Load saved creator data or use defaults
-        creators_data = self.settings.value("creators", default_values.get("creators", []))
+        creators_data = self.settings_compat.value("creators", default_values.get("creators", []))
         if creators_data:
             for creator_data in creators_data:
                 if len(self.creators_list) > 0:
@@ -232,7 +314,7 @@ class ZenodoUploaderApp(QMainWindow):
                     self.creators_list[0].set_data(creator_data)
         
         # Load saved contributor data or use defaults
-        contributors_data = self.settings.value("contributors", default_values.get("contributors", []))
+        contributors_data = self.settings_compat.value("contributors", default_values.get("contributors", []))
         if contributors_data:
             for contributor_data in contributors_data:
                 self.add_contributor()
@@ -240,7 +322,7 @@ class ZenodoUploaderApp(QMainWindow):
         
         # Load saved funding data - DISABLED: Zenodo API has issues with funding
         # TODO: Users need to add funding information manually on Zenodo
-        # funding_data = self.settings.value("funding", default_values.get("grants", []))
+        # funding_data = self.settings_compat.value("funding", default_values.get("grants", []))
         # if funding_data:
         #     for grant_data in funding_data:
         #         if isinstance(grant_data, dict):
@@ -278,23 +360,23 @@ class ZenodoUploaderApp(QMainWindow):
                 params_dict = {k: str(v) for k, v in ed_params.items() if v is not None}
         
         # Load individual field settings or use template defaults
-        self.title_edit.setText(self.settings.value("metadata/title", default_values.get("title", "")))
-        self.description_edit.setPlainText(self.settings.value("metadata/description", default_values.get("description", "")))
+        self.title_edit.setText(self.settings_compat.value("metadata/title", default_values.get("title", "")))
+        self.description_edit.setPlainText(self.settings_compat.value("metadata/description", default_values.get("description", "")))
         
         # Upload type combo
-        upload_type = self.settings.value("metadata/upload_type", default_values.get("upload_type", "dataset"))
+        upload_type = self.settings_compat.value("metadata/upload_type", default_values.get("upload_type", "dataset"))
         index = self.upload_type_combo.findText(upload_type)
         if index >= 0:
             self.upload_type_combo.setCurrentIndex(index)
             
         # Access right combo  
-        access_right = self.settings.value("metadata/access_right", default_values.get("access_right", "open"))
+        access_right = self.settings_compat.value("metadata/access_right", default_values.get("access_right", "open"))
         index = self.access_right_combo.findText(access_right)
         if index >= 0:
             self.access_right_combo.setCurrentIndex(index)
         
         # Keywords
-        keywords = self.settings.value("metadata/keywords", default_values.get("keywords", []))
+        keywords = self.settings_compat.value("metadata/keywords", default_values.get("keywords", []))
         if keywords:
             if isinstance(keywords, list):
                 self.keywords_edit.setText(", ".join(keywords))
@@ -302,7 +384,7 @@ class ZenodoUploaderApp(QMainWindow):
                 self.keywords_edit.setText(str(keywords))
         
         # Publication date
-        pub_date_str = self.settings.value("metadata/publication_date", default_values.get("publication_date", ""))
+        pub_date_str = self.settings_compat.value("metadata/publication_date", default_values.get("publication_date", ""))
         if pub_date_str:
             try:
                 date = QDate.fromString(pub_date_str, "yyyy-MM-dd")
@@ -311,7 +393,7 @@ class ZenodoUploaderApp(QMainWindow):
             except Exception:
                 pass
         
-        self.notes_edit.setPlainText(self.settings.value("metadata/notes", default_values.get("notes", "")))
+        self.notes_edit.setPlainText(self.settings_compat.value("metadata/notes", default_values.get("notes", "")))
         
         # Populate the measurement parameters widget
         self.measurement_params_widget.clear_parameters()
@@ -320,14 +402,16 @@ class ZenodoUploaderApp(QMainWindow):
                 self.measurement_params_widget.add_parameter(key, value)
     
     def save_settings(self):
-        """Save current settings"""
+        """Save current settings to JSON file"""
         # Don't save settings in distributed executables to avoid storing user data
         if is_frozen_executable():
             return
+        
+        # Save tokens to separate tokens.json file
+        self.save_tokens_to_file()
             
-        # Save API configuration
-        self.settings.setValue("api/token", self.token_edit.text())
-        self.settings.setValue("api/sandbox", self.sandbox_checkbox.isChecked())
+        # Save API configuration (sandbox preference only, not token)
+        self._set_setting("api/sandbox", self.sandbox_checkbox.isChecked())
         
         # Save creator data
         creators_data = []
@@ -335,7 +419,7 @@ class ZenodoUploaderApp(QMainWindow):
             creator_data = creator_widget.get_data()
             if creator_data.get("name"):
                 creators_data.append(creator_data)
-        self.settings.setValue("creators", creators_data)
+        self._set_setting("creators", creators_data)
         
         # Save contributor data
         contributors_data = []
@@ -343,11 +427,11 @@ class ZenodoUploaderApp(QMainWindow):
             contributor_data = contributor_widget.get_data()
             if contributor_data.get("name"):
                 contributors_data.append(contributor_data)
-        self.settings.setValue("contributors", contributors_data)
+        self._set_setting("contributors", contributors_data)
         
         # Save measurement parameters (new dict-based format)
         params = self.measurement_params_widget.get_parameters()
-        self.settings.setValue("ed/parameters", params)
+        self._set_setting("ed/parameters", params)
         
         # Also save individual fields for backward compatibility
         param_mapping = {
@@ -359,16 +443,19 @@ class ZenodoUploaderApp(QMainWindow):
         }
         for display_key, setting_key in param_mapping.items():
             value = params.get(display_key, "")
-            self.settings.setValue(f"ed/{setting_key}", value)
+            self._set_setting(f"ed/{setting_key}", value)
         
         # Save general metadata
-        self.settings.setValue("metadata/title", self.title_edit.text())
-        self.settings.setValue("metadata/description", self.description_edit.toPlainText())
-        self.settings.setValue("metadata/upload_type", self.upload_type_combo.currentText())
-        self.settings.setValue("metadata/access_right", self.access_right_combo.currentText())
-        self.settings.setValue("metadata/keywords", [kw.strip() for kw in self.keywords_edit.text().split(",") if kw.strip()])
-        self.settings.setValue("metadata/notes", self.notes_edit.toPlainText())
-        self.settings.setValue("metadata/publication_date", self.publication_date_edit.date().toString("yyyy-MM-dd"))
+        self._set_setting("metadata/title", self.title_edit.text())
+        self._set_setting("metadata/description", self.description_edit.toPlainText())
+        self._set_setting("metadata/upload_type", self.upload_type_combo.currentText())
+        self._set_setting("metadata/access_right", self.access_right_combo.currentText())
+        self._set_setting("metadata/keywords", [kw.strip() for kw in self.keywords_edit.text().split(",") if kw.strip()])
+        self._set_setting("metadata/notes", self.notes_edit.toPlainText())
+        self._set_setting("metadata/publication_date", self.publication_date_edit.date().toString("yyyy-MM-dd"))
+        
+        # Save settings to disk
+        save_settings(self.settings)
         
         # Save funding data - DISABLED: Zenodo API has issues with funding
         # TODO: Users need to add funding information manually on Zenodo
@@ -398,7 +485,7 @@ class ZenodoUploaderApp(QMainWindow):
         #             fund["url"] = url
         #         funding_data.append(fund)
         #         
-        # self.settings.setValue("funding", funding_data)
+        # self.settings_compat.setValue("funding", funding_data)
     
     def on_token_changed(self):
         """Handle access token change"""
@@ -426,7 +513,10 @@ class ZenodoUploaderApp(QMainWindow):
         # Skip during metadata loading
         if getattr(self, '_loading_metadata', False):
             return
-            
+        
+        # Load the appropriate token for the new mode
+        self.load_tokens_from_file()
+        
         token = self.token_edit.text().strip()
         sandbox = self.sandbox_checkbox.isChecked()
         self.service_factory.update_api_config(token, sandbox)
@@ -462,11 +552,89 @@ class ZenodoUploaderApp(QMainWindow):
             self.validate_zenodo_button.setEnabled(True)  # Enable Zenodo test button
             self.update_connection_status(True, "Connected")
             
+            # Load licenses after successful connection
+            self.load_licenses()
+            
         except Exception as e:
             QMessageBox.critical(self, "Connection Failed", f"Failed to connect to Zenodo API:\n{str(e)}")
             self.upload_button.setEnabled(False)
             self.validate_zenodo_button.setEnabled(False)  # Disable Zenodo test button
             self.update_connection_status(False, f"Connection failed: {str(e)[:30]}...")
+    
+    def load_tokens_from_file(self):
+        """Load API tokens from tokens.json"""
+        try:
+            tokens = load_tokens()
+            is_sandbox = self.sandbox_checkbox.isChecked()
+            
+            # Load the appropriate token based on sandbox mode
+            token = tokens.get('sandbox' if is_sandbox else 'production', '')
+            self.token_edit.setText(token)
+            
+            # Update status label if it exists
+            if hasattr(self, 'token_source_label'):
+                if token:
+                    mode = "sandbox" if is_sandbox else "production"
+                    self.token_source_label.setText(f"✓ Loaded {mode} token from config")
+                    self.token_source_label.setStyleSheet("color: green;")
+                else:
+                    mode = "sandbox" if is_sandbox else "production"
+                    self.token_source_label.setText(f"⚠ No {mode} token in config")
+                    self.token_source_label.setStyleSheet("color: orange;")
+        except Exception as e:
+            print(f"Warning: Could not load tokens: {e}")
+            if hasattr(self, 'token_source_label'):
+                self.token_source_label.setText(f"⚠ Could not load tokens")
+                self.token_source_label.setStyleSheet("color: red;")
+    
+    def save_tokens_to_file(self):
+        """Save current token to tokens.json"""
+        # Don't save in portable/frozen executable mode
+        if is_frozen_executable():
+            return
+            
+        try:
+            # Load existing tokens
+            tokens = load_tokens()
+            
+            # Update the appropriate token based on current sandbox mode
+            is_sandbox = self.sandbox_checkbox.isChecked()
+            current_token = self.token_edit.text().strip()
+            
+            if is_sandbox:
+                tokens['sandbox'] = current_token
+            else:
+                tokens['production'] = current_token
+            
+            # Save back to file
+            save_tokens(tokens['sandbox'], tokens['production'])
+            
+            if hasattr(self, 'token_source_label'):
+                mode = "sandbox" if is_sandbox else "production"
+                self.token_source_label.setText(f"✓ Saved {mode} token to config")
+                self.token_source_label.setStyleSheet("color: green;")
+        except Exception as e:
+            print(f"Warning: Could not save tokens: {e}")
+            if hasattr(self, 'token_source_label'):
+                self.token_source_label.setText(f"⚠ Could not save token")
+                self.token_source_label.setStyleSheet("color: red;")
+    
+    def reload_tokens(self):
+        """Reload tokens from file and update UI"""
+        self.load_tokens_from_file()
+        self.statusBar().showMessage("Tokens reloaded from config", 3000)
+    
+    def open_config_directory(self):
+        """Open the user configuration directory in file explorer"""
+        try:
+            open_user_config_directory()
+            self.statusBar().showMessage("Opened config directory", 3000)
+        except Exception as e:
+            QMessageBox.warning(
+                self, 
+                "Warning", 
+                f"Could not open config directory:\n{str(e)}"
+            )
     
     def update_connection_status(self, connected: bool, message: str = ""):
         """Update the connection status indicator"""
@@ -1394,8 +1562,21 @@ class ZenodoUploaderApp(QMainWindow):
         self.sandbox_checkbox.setChecked(True)
         self.sandbox_checkbox.stateChanged.connect(self.on_sandbox_changed)
         
+        # Token management buttons
+        token_buttons_layout = QHBoxLayout()
         self.test_button = QPushButton("Test Connection")
         self.test_button.clicked.connect(self.test_connection)
+        token_buttons_layout.addWidget(self.test_button)
+        
+        self.reload_tokens_button = QPushButton("🔄 Reload Tokens")
+        self.reload_tokens_button.clicked.connect(self.reload_tokens)
+        self.reload_tokens_button.setToolTip("Reload tokens from tokens.json config file")
+        token_buttons_layout.addWidget(self.reload_tokens_button)
+        token_buttons_layout.addStretch()
+        
+        # Token source indicator
+        self.token_source_label = QLabel("Token not loaded")
+        self.token_source_label.setStyleSheet("color: gray; font-size: 10px; font-style: italic;")
         
         # Connection status indicator for Configuration tab
         self.config_connection_status_label = QLabel("❌ Not Connected")
@@ -1404,7 +1585,8 @@ class ZenodoUploaderApp(QMainWindow):
         
         api_layout.addRow("Access Token:", self.token_edit)
         api_layout.addRow("", self.sandbox_checkbox)
-        api_layout.addRow("", self.test_button)
+        api_layout.addRow("", token_buttons_layout)
+        api_layout.addRow("Token Status:", self.token_source_label)
         api_layout.addRow("Connection Status:", self.config_connection_status_label)
         
         api_group.setLayout(api_layout)
@@ -1428,9 +1610,12 @@ class ZenodoUploaderApp(QMainWindow):
         <li>Create a Zenodo account at <a href="https://zenodo.org">zenodo.org</a> (or <a href="https://sandbox.zenodo.org">sandbox.zenodo.org</a> for testing)</li>
         <li>Go to Applications → Personal access tokens</li>
         <li>Create a new token with 'deposit:write' and 'deposit:actions' scopes</li>
-        <li>Enter the token above and test the connection</li>
+        <li>Enter the token above or save it in your config directory's <code>tokens.json</code> file</li>
+        <li>Test the connection</li>
         <li>Fill in your metadata and upload your data</li>
         </ol>
+        <p><b>💡 Tip:</b> You can store both sandbox and production tokens in <code>tokens.json</code>. 
+        Use <b>File → Open Config Directory</b> to access it. The app will automatically load the appropriate token based on the sandbox checkbox.</p>
         """)
         instructions.setWordWrap(True)
         instructions.setOpenExternalLinks(True)
@@ -1762,3 +1947,4 @@ class ZenodoUploaderApp(QMainWindow):
         layout.addStretch()
         tab.setLayout(layout)
         return tab
+

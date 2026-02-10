@@ -1,7 +1,16 @@
 """
 Settings management services
 
-Provides centralized settings management with validation and defaults.
+DEPRECATED: This module is kept for interface compliance but is no longer actively used.
+The application now uses direct JSON file management via user_config.py for settings persistence.
+
+Legacy classes:
+- QtSettingsManager: Original QSettings-based settings manager (replaced by JSON config)
+- DefaultMetadataProvider: Legacy metadata defaults provider (replaced by template system)
+
+For current settings management, see:
+- src/services/user_config.py for configuration file management
+- src/gui/app.py SettingsCompat class for settings access
 """
 
 import json
